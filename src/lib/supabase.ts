@@ -1,13 +1,36 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error("Missing Supabase environment variables. Check your .env file.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// ── Singleton ──────────────────────────────────────────────────────────────────
+// Prevents "Multiple GoTrueClient instances" warning caused by HMR in dev
+// or chunk splitting in production re-evaluating this module more than once.
+declare global {
+  interface Window { __supabase_singleton__: SupabaseClient | undefined }
+}
+
+function getClient(): SupabaseClient {
+  if (typeof window !== "undefined" && window.__supabase_singleton__) {
+    return window.__supabase_singleton__;
+  }
+  const client = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession:     true,
+      autoRefreshToken:   true,
+      detectSessionInUrl: true,
+      storageKey:         "leadhunter-auth",
+    },
+  });
+  if (typeof window !== "undefined") window.__supabase_singleton__ = client;
+  return client;
+}
+
+export const supabase = getClient();
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
