@@ -7,9 +7,6 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error("Missing Supabase environment variables. Check your .env file.");
 }
 
-// ── Singleton ──────────────────────────────────────────────────────────────────
-// Prevents "Multiple GoTrueClient instances" warning caused by HMR in dev
-// or chunk splitting in production re-evaluating this module more than once.
 declare global {
   interface Window { __supabase_singleton__: SupabaseClient | undefined }
 }
@@ -25,6 +22,15 @@ function getClient(): SupabaseClient {
       detectSessionInUrl: true,
       storageKey:         "leadhunter-auth",
     },
+    global: {
+      headers: { "x-application-name": "leadhunter" },
+    },
+    realtime: {
+      params: { log_level: "warning" },
+    },
+    db: {
+      schema: "public",
+    },
   });
   if (typeof window !== "undefined") window.__supabase_singleton__ = client;
   return client;
@@ -32,10 +38,17 @@ function getClient(): SupabaseClient {
 
 export const supabase = getClient();
 
+// ── Helper: get current user id safely ────────────────────────────────────────
+export async function getUserId(): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface Lead {
   id: string;
+  user_id?: string;
   business_name: string;
   category: string | null;
   city: string | null;
@@ -76,12 +89,14 @@ export interface Lead {
 
 export interface Tag {
   id: string;
+  user_id?: string;
   name: string;
   color: string;
 }
 
 export interface LeadNote {
   id: string;
+  user_id?: string;
   lead_id: string;
   note: string;
   created_at: string;
@@ -89,6 +104,7 @@ export interface LeadNote {
 
 export interface Task {
   id: string;
+  user_id?: string;
   lead_id: string;
   title: string;
   description: string | null;
@@ -100,6 +116,7 @@ export interface Task {
 
 export interface OutreachHistory {
   id: string;
+  user_id?: string;
   lead_id: string;
   contact_mode: "Call" | "Email" | "WhatsApp" | "LinkedIn" | "Other";
   subject: string | null;
@@ -110,8 +127,16 @@ export interface OutreachHistory {
 
 export interface DailyTarget {
   id: string;
+  user_id?: string;
   date: string;
   daily_target: number;
   daily_done: number;
   streak: number;
+}
+
+export interface Profile {
+  id: string;
+  full_name: string | null;
+  company: string | null;
+  created_at: string;
 }

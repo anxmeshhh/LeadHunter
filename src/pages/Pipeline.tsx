@@ -141,8 +141,14 @@ function MoveMenu({ currentStatus, onMove, onClose }) {
             onClick={() => { onMove(s.name); onClose(); }}
             className="w-full text-left px-2 py-1.5 text-xs rounded-lg transition-all flex items-center gap-2 group"
             style={{ color: "rgba(148,163,184,0.8)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = s.bg; e.currentTarget.style.color = s.color; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(148,163,184,0.8)"; }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = s.bg;
+              e.currentTarget.style.color = s.color;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "rgba(148,163,184,0.8)";
+            }}
           >
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
             <span className="flex-1 truncate font-stats">{s.name}</span>
@@ -220,7 +226,6 @@ function KanbanCard({ card, stageCfg, onMove, onClick }) {
 
       {/* Footer row */}
       <div className="flex items-center justify-between">
-        {/* Deal value */}
         <div className="flex items-center gap-0.5">
           <IndianRupee className="w-2.5 h-2.5" style={{ color: stageCfg.color }} />
           <span className="text-[12px] font-stats font-bold" style={{ color: stageCfg.color }}>
@@ -229,19 +234,16 @@ function KanbanCard({ card, stageCfg, onMove, onClick }) {
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Score badge */}
           <span
             className="text-[9px] font-stats px-1.5 py-0.5 rounded-md border"
             style={{
-              background:   scoreStyle.bg,
-              color:        scoreStyle.text,
-              borderColor:  scoreStyle.border,
+              background:  scoreStyle.bg,
+              color:       scoreStyle.text,
+              borderColor: scoreStyle.border,
             }}
           >
             {card.score_label}
           </span>
-
-          {/* Days in stage */}
           <span
             className="text-[9px] font-stats px-1.5 py-0.5 rounded-md"
             style={{
@@ -254,7 +256,6 @@ function KanbanCard({ card, stageCfg, onMove, onClick }) {
         </div>
       </div>
 
-      {/* Move menu */}
       <AnimatePresence>
         {showMenu && (
           <MoveMenu
@@ -280,13 +281,12 @@ function StageColumn({ stage, stageCfg, onMove, onCardClick, index }) {
       transition={{ delay: index * 0.04, duration: 0.3 }}
       className="flex flex-col min-w-[220px] w-[220px] shrink-0 min-h-0"
     >
-      {/* Stage Header */}
       <div
         className="rounded-xl p-3 mb-2 shrink-0"
         style={{
-          background:  stageCfg.bg,
-          border:      `1px solid ${stageCfg.border}`,
-          boxShadow:   `0 2px 12px ${stageCfg.glow}`,
+          background: stageCfg.bg,
+          border:     `1px solid ${stageCfg.border}`,
+          boxShadow:  `0 2px 12px ${stageCfg.glow}`,
         }}
       >
         <div className="flex items-center justify-between mb-2">
@@ -301,16 +301,12 @@ function StageColumn({ stage, stageCfg, onMove, onCardClick, index }) {
           </div>
           <span
             className="text-[10px] font-stats font-bold w-5 h-5 rounded-full flex items-center justify-center"
-            style={{
-              background: `${stageCfg.color}20`,
-              color:      stageCfg.color,
-            }}
+            style={{ background: `${stageCfg.color}20`, color: stageCfg.color }}
           >
             {stage.cards.length}
           </span>
         </div>
 
-        {/* Value bar + total */}
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-stats font-semibold" style={{ color: "rgba(255,255,255,0.5)" }}>
             {formatValue(totalValue)}
@@ -331,13 +327,9 @@ function StageColumn({ stage, stageCfg, onMove, onCardClick, index }) {
         </div>
       </div>
 
-      {/* Cards */}
       <div
         className="flex-1 overflow-y-auto space-y-2 pr-0.5 min-h-0"
-        style={{
-          scrollbarWidth: "thin",
-          scrollbarColor: "rgba(255,255,255,0.08) transparent",
-        }}
+        style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}
       >
         <AnimatePresence>
           {stage.cards.map((card) => (
@@ -354,10 +346,7 @@ function StageColumn({ stage, stageCfg, onMove, onCardClick, index }) {
         {stage.cards.length === 0 && (
           <div
             className="rounded-xl p-4 text-center mt-1"
-            style={{
-              border:     `1px dashed ${stageCfg.border}`,
-              background: stageCfg.bg,
-            }}
+            style={{ border: `1px dashed ${stageCfg.border}`, background: stageCfg.bg }}
           >
             <p className="text-[10px] font-stats" style={{ color: `${stageCfg.color}40` }}>
               Empty
@@ -371,10 +360,10 @@ function StageColumn({ stage, stageCfg, onMove, onCardClick, index }) {
 
 // ─── Main Pipeline Page ───────────────────────────────────────────────────────
 export default function Pipeline() {
-  const navigate   = useNavigate();
-  const [stages,   setStages]   = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState(null);
+  const navigate = useNavigate();
+  const [stages,  setStages]  = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
 
   const buildStages = useCallback((leads) => {
     return STAGE_CONFIG.map((cfg) => ({
@@ -385,25 +374,31 @@ export default function Pipeline() {
         .map((l) => ({
           id:          l.id,
           name:        l.business_name,
-          category:    l.category    ?? "—",
-          city:        l.city        ?? "—",
-          deal_value:  l.deal_value  ?? 0,
+          category:    l.category   ?? "—",
+          city:        l.city       ?? "—",
+          deal_value:  l.deal_value ?? 0,
           daysInStage: daysAgo(l.updated_at),
-          score:       l.score       ?? 0,
+          score:       l.score      ?? 0,
           score_label: l.score_label ?? "Low",
           status:      l.status,
         })),
     }));
   }, []);
 
+  // ✅ FIX: get current user then filter by user_id
   const fetchPipeline = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error: err } = await supabase
         .from("leads")
         .select("id, business_name, category, city, deal_value, status, score, score_label, updated_at")
+        .eq("user_id", user.id)                          // ✅ user_id filter
         .order("updated_at", { ascending: false });
+
       if (err) throw err;
       setStages(buildStages(data ?? []));
     } catch (e) {
@@ -422,6 +417,7 @@ export default function Pipeline() {
     return () => { supabase.removeChannel(ch); };
   }, [fetchPipeline]);
 
+  // ✅ FIX: also scope the update to the current user's lead
   async function handleMove(leadId, newStatus) {
     // Optimistic update
     setStages((prev) => {
@@ -438,19 +434,23 @@ export default function Pipeline() {
       );
     });
 
+    const { data: { user } } = await supabase.auth.getUser();
     const { error: e } = await supabase
       .from("leads")
       .update({ status: newStatus })
-      .eq("id", leadId);
+      .eq("id", leadId)
+      .eq("user_id", user?.id);                          // ✅ user_id scoped update
+
     if (e) fetchPipeline();
   }
 
-  // ── Summary stats ───────────────────────────────────────────────────────────
-  const allCards   = stages.flatMap((s) => s.cards);
-  const totalValue = allCards.reduce((s, c) => s + c.deal_value, 0);
-  const wonValue   = (stages.find((s) => s.name === "Closed Won")?.cards ?? []).reduce((s, c) => s + c.deal_value, 0);
-  const activeLeads = allCards.filter((c) => !["Closed Won","Closed Lost"].includes(c.status)).length;
-  const convRate   = allCards.length
+  // ── Summary stats ──────────────────────────────────────────────────────────
+  const allCards    = stages.flatMap((s) => s.cards);
+  const totalValue  = allCards.reduce((s, c) => s + c.deal_value, 0);
+  const wonValue    = (stages.find((s) => s.name === "Closed Won")?.cards ?? [])
+                        .reduce((s, c) => s + c.deal_value, 0);
+  const activeLeads = allCards.filter((c) => !["Closed Won", "Closed Lost"].includes(c.status)).length;
+  const convRate    = allCards.length
     ? Math.round(((stages.find((s) => s.name === "Closed Won")?.cards.length ?? 0) / allCards.length) * 100)
     : 0;
 
@@ -469,7 +469,7 @@ export default function Pipeline() {
               Deal Pipeline
             </h1>
             <p className="text-[12px] font-stats mt-0.5" style={{ color: "rgba(148,163,184,0.6)" }}>
-              Live view · drag cards to move stages
+              Live view · click ··· on a card to move stages
             </p>
           </div>
 
@@ -479,9 +479,9 @@ export default function Pipeline() {
               disabled={loading}
               className="p-2 rounded-lg transition-all"
               style={{
-                background:  "rgba(255,255,255,0.04)",
-                border:      "1px solid rgba(255,255,255,0.08)",
-                color:       "rgba(148,163,184,0.7)",
+                background: "rgba(255,255,255,0.04)",
+                border:     "1px solid rgba(255,255,255,0.08)",
+                color:      "rgba(148,163,184,0.7)",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.color = "white"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(148,163,184,0.7)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
@@ -489,13 +489,9 @@ export default function Pipeline() {
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
 
-            {/* Live badge */}
             <div
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{
-                background:  "rgba(52,211,153,0.08)",
-                border:      "1px solid rgba(52,211,153,0.2)",
-              }}
+              style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)" }}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[10px] font-stats text-emerald-400">LIVE</span>
@@ -506,10 +502,10 @@ export default function Pipeline() {
         {/* ── Summary bar ───────────────────────────────────────────────────── */}
         <div className="grid grid-cols-4 gap-3 mt-4">
           {[
-            { label: "Pipeline Value",  value: formatValue(totalValue), color: "hsl(72,100%,50%)"  },
-            { label: "Closed Won",      value: formatValue(wonValue),   color: "#34d399"            },
-            { label: "Active Leads",    value: activeLeads,             color: "#60a5fa"            },
-            { label: "Conversion",      value: `${convRate}%`,          color: "#c084fc"            },
+            { label: "Pipeline Value", value: formatValue(totalValue), color: "hsl(72,100%,50%)" },
+            { label: "Closed Won",     value: formatValue(wonValue),   color: "#34d399"           },
+            { label: "Active Leads",   value: activeLeads,             color: "#60a5fa"           },
+            { label: "Conversion",     value: `${convRate}%`,          color: "#c084fc"           },
           ].map((stat, i) => (
             <motion.div
               key={stat.label}
@@ -517,10 +513,7 @@ export default function Pipeline() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 + i * 0.05 }}
               className="rounded-xl px-4 py-3"
-              style={{
-                background: "rgba(255,255,255,0.025)",
-                border:     "1px solid rgba(255,255,255,0.06)",
-              }}
+              style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}
             >
               <p className="text-[9px] font-stats uppercase tracking-widest mb-1" style={{ color: "rgba(148,163,184,0.5)" }}>
                 {stat.label}
@@ -537,11 +530,7 @@ export default function Pipeline() {
       {error && (
         <div
           className="shrink-0 mb-3 p-3 rounded-xl text-sm flex items-center justify-between font-stats"
-          style={{
-            background:  "rgba(248,113,113,0.08)",
-            border:      "1px solid rgba(248,113,113,0.2)",
-            color:       "#f87171",
-          }}
+          style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171" }}
         >
           <span>⚠ {error}</span>
           <button onClick={fetchPipeline} className="text-xs underline opacity-70 hover:opacity-100">Retry</button>

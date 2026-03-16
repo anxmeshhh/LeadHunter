@@ -2,32 +2,28 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Users, Phone, MessageSquare, TrendingUp, Zap, RefreshCw,
-  Plus, Edit3, CheckCircle, Tag, FileText,
-  Send, ArrowRight, Clock, Activity
+  Plus, FileText, Send, ArrowRight, Clock, Activity
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
 import StatCard from "../components/StatCard";
 import MotivationPanel from "../components/MotivationPanel";
 import PipelineMini from "../components/PipelineMini";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { CheckCircle } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface DashboardStats {
-  total_leads: number;
-  contacted: number;
-  replies: number;
+  total_leads:    number;
+  contacted:      number;
+  replies:        number;
   revenue_closed: number;
 }
 
 interface MotivationData {
-  streak: number;
+  streak:       number;
   daily_target: number;
-  daily_done: number;
+  daily_done:   number;
 }
 
 type ActivityType =
@@ -38,11 +34,11 @@ type ActivityType =
   | "status_changed";
 
 interface ActivityItem {
-  id: string;
-  type: ActivityType;
-  title: string;
+  id:       string;
+  type:     ActivityType;
+  title:    string;
   subtitle: string;
-  time: string;
+  time:     string;
   lead_id?: string;
 }
 
@@ -64,28 +60,30 @@ function timeAgo(iso: string): string {
   const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);
-  if (mins < 1)   return "just now";
-  if (mins < 60)  return `${mins}m ago`;
+  if (mins  < 1)  return "just now";
+  if (mins  < 60) return `${mins}m ago`;
   if (hours < 24) return `${hours}h ago`;
   if (days === 1) return "yesterday";
   return `${days}d ago`;
 }
 
 const ACTIVITY_CONFIG: Record<ActivityType, { icon: React.ReactNode; color: string; bg: string }> = {
-  lead_added:     { icon: <Plus className="w-3.5 h-3.5" />,        color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  note_added:     { icon: <FileText className="w-3.5 h-3.5" />,    color: "text-violet-400",  bg: "bg-violet-500/10"  },
-  outreach_sent:  { icon: <Send className="w-3.5 h-3.5" />,        color: "text-cyan-400",    bg: "bg-cyan-500/10"    },
-  task_done:      { icon: <CheckCircle className="w-3.5 h-3.5" />, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  status_changed: { icon: <ArrowRight className="w-3.5 h-3.5" />,  color: "text-amber-400",   bg: "bg-amber-500/10"   },
+  lead_added:     { icon: <Plus className="w-3.5 h-3.5" />,         color: "text-emerald-400", bg: "bg-emerald-500/10" },
+  note_added:     { icon: <FileText className="w-3.5 h-3.5" />,     color: "text-violet-400",  bg: "bg-violet-500/10"  },
+  outreach_sent:  { icon: <Send className="w-3.5 h-3.5" />,         color: "text-cyan-400",    bg: "bg-cyan-500/10"    },
+  task_done:      { icon: <CheckCircle className="w-3.5 h-3.5" />,  color: "text-emerald-400", bg: "bg-emerald-500/10" },
+  status_changed: { icon: <ArrowRight className="w-3.5 h-3.5" />,   color: "text-amber-400",   bg: "bg-amber-500/10"   },
 };
 
 // ─── Recent Activity ──────────────────────────────────────────────────────────
 function RecentActivity() {
-  const navigate = useNavigate();
+  const navigate          = useNavigate();
+  const { user }          = useAuth();
   const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [loading, setLoading]       = useState(true);
+  const [loading,    setLoading]    = useState(true);
 
   const fetchActivity = useCallback(async () => {
+    if (!user?.id) return;
     setLoading(true);
     try {
       const since    = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -101,6 +99,7 @@ function RecentActivity() {
         supabase
           .from("leads")
           .select("id, business_name, city, category, created_at")
+          .eq("user_id", user.id)
           .gte("created_at", since)
           .order("created_at", { ascending: false })
           .limit(10),
@@ -108,6 +107,7 @@ function RecentActivity() {
         supabase
           .from("lead_notes")
           .select("id, note, created_at, lead_id, leads(business_name)")
+          .eq("user_id", user.id)
           .gte("created_at", since)
           .order("created_at", { ascending: false })
           .limit(10),
@@ -115,6 +115,7 @@ function RecentActivity() {
         supabase
           .from("outreach_history")
           .select("id, contact_mode, subject, contacted_at, lead_id, leads(business_name)")
+          .eq("user_id", user.id)
           .gte("contacted_at", since)
           .order("contacted_at", { ascending: false })
           .limit(10),
@@ -122,6 +123,7 @@ function RecentActivity() {
         supabase
           .from("tasks")
           .select("id, title, due_date, lead_id, leads(business_name)")
+          .eq("user_id", user.id)
           .eq("is_done", true)
           .gte("due_date", sinceDay)
           .order("due_date", { ascending: false })
@@ -130,6 +132,7 @@ function RecentActivity() {
         supabase
           .from("leads")
           .select("id, business_name, status, updated_at")
+          .eq("user_id", user.id)
           .gte("updated_at", since)
           .neq("status", "New Lead")
           .order("updated_at", { ascending: false })
@@ -137,8 +140,6 @@ function RecentActivity() {
       ]);
 
       const items: ActivityItem[] = [];
-
-      // Helper to safely get business name from Supabase join
       const getBiz = (joined: any) =>
         Array.isArray(joined) ? joined[0]?.business_name : joined?.business_name;
 
@@ -204,27 +205,22 @@ function RecentActivity() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     fetchActivity();
     const ch = supabase
-      .channel("realtime:activity-feed")
+      .channel(`activity-feed-${user?.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "leads" },            fetchActivity)
       .on("postgres_changes", { event: "*", schema: "public", table: "lead_notes" },       fetchActivity)
       .on("postgres_changes", { event: "*", schema: "public", table: "outreach_history" }, fetchActivity)
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" },            fetchActivity)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [fetchActivity]);
+  }, [fetchActivity, user?.id]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass rounded-xl p-5"
-    >
-      {/* Header */}
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-xl p-5">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2.5">
           <div className="p-1.5 rounded-lg bg-primary/10">
@@ -241,7 +237,6 @@ function RecentActivity() {
         </div>
       </div>
 
-      {/* Loading skeletons */}
       {loading && (
         <div className="space-y-2">
           {[1, 2, 3, 4, 5].map((i) => (
@@ -257,19 +252,21 @@ function RecentActivity() {
         </div>
       )}
 
-      {/* Empty state */}
       {!loading && activities.length === 0 && (
         <div className="py-12 text-center space-y-3">
           <Clock className="w-8 h-8 text-muted-foreground mx-auto opacity-25" />
           <p className="text-sm text-muted-foreground">No activity in the last 7 days.</p>
           <p className="text-xs text-muted-foreground">
-            Start by <span className="text-primary cursor-pointer hover:underline"
-              onClick={() => navigate("/discover")}>discovering leads</span> or adding your first one.
+            Start by{" "}
+            <span className="text-primary cursor-pointer hover:underline"
+              onClick={() => navigate("/discover")}>
+              discovering leads
+            </span>{" "}
+            or adding your first one.
           </p>
         </div>
       )}
 
-      {/* Feed */}
       {!loading && activities.length > 0 && (
         <div className="space-y-0.5">
           {activities.map((item, i) => {
@@ -285,18 +282,13 @@ function RecentActivity() {
                   item.lead_id ? "hover:bg-muted/50 cursor-pointer" : ""
                 }`}
               >
-                {/* Icon dot */}
                 <div className={`p-1.5 rounded-lg shrink-0 ${cfg.bg}`}>
                   <span className={cfg.color}>{cfg.icon}</span>
                 </div>
-
-                {/* Text */}
                 <div className="flex-1 min-w-0">
                   <span className="text-[10px] font-stats text-muted-foreground">{item.title} </span>
                   <span className="text-sm text-foreground truncate block leading-tight">{item.subtitle}</span>
                 </div>
-
-                {/* Time */}
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="text-[10px] font-stats text-muted-foreground whitespace-nowrap">
                     {timeAgo(item.time)}
@@ -316,7 +308,8 @@ function RecentActivity() {
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const navigate = useNavigate();
+  const navigate    = useNavigate();
+  const { user }    = useAuth();
 
   const [stats, setStats] = useState<DashboardStats>({
     total_leads: 0, contacted: 0, replies: 0, revenue_closed: 0,
@@ -324,28 +317,54 @@ export default function Dashboard() {
   const [motivation, setMotivation] = useState<MotivationData>({
     streak: 0, daily_target: 10, daily_done: 0,
   });
-  const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState<string | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   const fetchDashboardStats = useCallback(async () => {
+    if (!user?.id) return;
     setLoading(true);
     setError(null);
     try {
+      const today = new Date().toISOString().split("T")[0];
+
       const [
         { count: totalLeads,  error: leadsError },
         { count: contacted,   error: contactedError },
         { count: replies,     error: repliesError },
-        { data: revenueData,  error: revenueError },
-        { data: streakData,   error: streakError },
+        { data:  revenueData, error: revenueError },
+        { data:  streakData },
       ] = await Promise.all([
-        supabase.from("leads").select("*", { count: "exact", head: true }),
-        supabase.from("leads").select("*", { count: "exact", head: true }).neq("status", "New Lead"),
-        supabase.from("leads").select("*", { count: "exact", head: true })
+        supabase
+          .from("leads")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id),
+
+        supabase
+          .from("leads")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .neq("status", "New Lead"),
+
+        supabase
+          .from("leads")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id)
           .in("status", ["Replied", "Interested", "Proposal Sent", "Negotiation", "Closed Won"]),
-        supabase.from("leads").select("deal_value").eq("status", "Closed Won"),
-        supabase.from("daily_targets").select("*")
-          .eq("date", new Date().toISOString().split("T")[0]).single(),
+
+        supabase
+          .from("leads")
+          .select("deal_value")
+          .eq("user_id", user.id)
+          .eq("status", "Closed Won"),
+
+        // ── maybeSingle() instead of single() — no 406 when row missing ──
+        supabase
+          .from("daily_targets")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("date", today)
+          .maybeSingle(),
       ]);
 
       if (leadsError)     throw leadsError;
@@ -362,11 +381,20 @@ export default function Dashboard() {
         revenue_closed: totalRevenue,
       });
 
-      if (!streakError && streakData) {
+      if (streakData) {
         setMotivation({
           streak:       streakData.streak       ?? 0,
           daily_target: streakData.daily_target ?? 10,
           daily_done:   streakData.daily_done   ?? 0,
+        });
+      } else {
+        // No daily target row yet — create one for today
+        await supabase.from("daily_targets").insert({
+          user_id:      user.id,
+          date:         today,
+          daily_target: 10,
+          daily_done:   0,
+          streak:       0,
         });
       }
 
@@ -376,16 +404,18 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     fetchDashboardStats();
 
-    const leadsChannel = supabase.channel("realtime:leads")
+    const leadsChannel = supabase
+      .channel(`dashboard-leads-${user?.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, fetchDashboardStats)
       .subscribe();
 
-    const targetsChannel = supabase.channel("realtime:daily_targets")
+    const targetsChannel = supabase
+      .channel(`dashboard-targets-${user?.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "daily_targets" }, (payload) => {
         if (payload.new && typeof payload.new === "object") {
           const row = payload.new as { streak?: number; daily_target?: number; daily_done?: number };
@@ -398,7 +428,8 @@ export default function Dashboard() {
       })
       .subscribe();
 
-    const outreachChannel = supabase.channel("realtime:outreach_history")
+    const outreachChannel = supabase
+      .channel(`dashboard-outreach-${user?.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "outreach_history" }, fetchDashboardStats)
       .subscribe();
 
@@ -407,7 +438,7 @@ export default function Dashboard() {
       supabase.removeChannel(targetsChannel);
       supabase.removeChannel(outreachChannel);
     };
-  }, [fetchDashboardStats]);
+  }, [fetchDashboardStats, user?.id]);
 
   const replyRate   = stats.contacted   > 0 ? Math.round((stats.replies   / stats.contacted)   * 100) : 0;
   const contactRate = stats.total_leads > 0 ? Math.round((stats.contacted / stats.total_leads) * 100) : 0;
@@ -417,8 +448,7 @@ export default function Dashboard() {
 
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
-      >
+        className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-heading font-bold text-foreground">Command Center</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -442,8 +472,7 @@ export default function Dashboard() {
           <button
             onClick={() => navigate("/discover")}
             className="px-5 py-2.5 rounded-lg font-heading font-semibold text-sm text-primary-foreground transition-all hover:opacity-90 glow-primary"
-            style={{ background: "var(--gradient-primary)" }}
-          >
+            style={{ background: "var(--gradient-primary)" }}>
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4" /> Discover Leads
             </div>
@@ -454,8 +483,7 @@ export default function Dashboard() {
       {/* Error */}
       {error && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between"
-        >
+          className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between">
           <span>⚠️ {error}</span>
           <button onClick={fetchDashboardStats} className="text-xs underline hover:no-underline">Retry</button>
         </motion.div>

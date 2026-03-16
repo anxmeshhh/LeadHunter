@@ -1,20 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Phone, Mail, Globe, MapPin, Star, MessageSquare,
-  Sparkles, Brain, Zap, Target, TrendingUp, Clock, CheckCircle2,
-  Plus, Trash2, Edit3, Save, X, Loader2, ExternalLink,
+  Sparkles, Brain, Zap, Target, Clock, CheckCircle2,
+  Plus, Trash2, Edit3, X, Loader2, ExternalLink,
   Tag, FileText, Activity, ChevronRight, RefreshCw,
-  AlertCircle, Copy, Check, Flame, Shield, Wifi,
+  AlertCircle, Copy, Check, Flame, Shield,
   BarChart2, Users, IndianRupee, Send, Calendar,
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Lead {
@@ -39,10 +35,10 @@ interface Lead {
   created_at: string;
   updated_at: string;
 }
-interface Note      { id: string; note: string; created_at: string; }
-interface Task      { id: string; title: string; priority: string; is_done: boolean; due_date: string; }
-interface Outreach  { id: string; contact_mode: string; subject: string; message: string; status: string; contacted_at: string; }
-interface TagData   { id: string; name: string; color: string; }
+interface Note     { id: string; note: string; created_at: string; }
+interface Task     { id: string; title: string; priority: string; is_done: boolean; due_date: string; }
+interface Outreach { id: string; contact_mode: string; subject: string; message: string; status: string; contacted_at: string; }
+interface TagData  { id: string; name: string; color: string; }
 
 // ── Status config ──────────────────────────────────────────────────────────────
 const STATUS_OPTIONS = [
@@ -65,7 +61,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   Low:    "text-slate-400 bg-slate-400/10 border-slate-400/30",
 };
 
-// ── AI Engine ─────────────────────────────────────────────────────────────────
+// ── AI Engine ──────────────────────────────────────────────────────────────────
 async function callGroq(prompt: string, maxTokens = 400): Promise<string> {
   const key = import.meta.env.VITE_GROQ_API_KEY;
   if (!key) return "Add VITE_GROQ_API_KEY to .env to enable AI features.";
@@ -85,18 +81,16 @@ async function callGroq(prompt: string, maxTokens = 400): Promise<string> {
 
 // ── Score Ring ─────────────────────────────────────────────────────────────────
 function ScoreRing({ score }: { score: number }) {
-  const r   = 36;
-  const c   = 2 * Math.PI * r;
-  const pct = Math.min(score, 100) / 100;
+  const r     = 36;
+  const c     = 2 * Math.PI * r;
+  const pct   = Math.min(score, 100) / 100;
   const color = score >= 70 ? "#ef4444" : score >= 45 ? "#f59e0b" : "#64748b";
   return (
     <div className="relative w-24 h-24 flex items-center justify-center">
       <svg className="absolute inset-0 -rotate-90" width="96" height="96">
         <circle cx="48" cy="48" r={r} fill="none" stroke="hsl(215,20%,20%)" strokeWidth="6" />
-        <motion.circle
-          cx="48" cy="48" r={r} fill="none"
-          stroke={color} strokeWidth="6"
-          strokeLinecap="round"
+        <motion.circle cx="48" cy="48" r={r} fill="none"
+          stroke={color} strokeWidth="6" strokeLinecap="round"
           strokeDasharray={c}
           initial={{ strokeDashoffset: c }}
           animate={{ strokeDashoffset: c - pct * c }}
@@ -145,8 +139,9 @@ function SectionCard({ title, icon: Icon, children, action }: {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function LeadDetail() {
-  const { id }   = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { id }     = useParams<{ id: string }>();
+  const navigate   = useNavigate();
+  const { user }   = useAuth(); // ← AUTH
 
   const [lead,     setLead]     = useState<Lead | null>(null);
   const [notes,    setNotes]    = useState<Note[]>([]);
@@ -157,36 +152,25 @@ export default function LeadDetail() {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
 
-  // Edit state
   const [editStatus,    setEditStatus]    = useState(false);
   const [editDealValue, setEditDealValue] = useState(false);
   const [dealInput,     setDealInput]     = useState("");
-
-  // Note state
-  const [noteInput,   setNoteInput]   = useState("");
-  const [savingNote,  setSavingNote]  = useState(false);
-
-  // Task state
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [taskInput,    setTaskInput]    = useState({ title: "", priority: "Medium", due_date: "" });
-  const [savingTask,   setSavingTask]   = useState(false);
-
-  // Outreach state
+  const [noteInput,     setNoteInput]     = useState("");
+  const [savingNote,    setSavingNote]    = useState(false);
+  const [showTaskForm,  setShowTaskForm]  = useState(false);
+  const [taskInput,     setTaskInput]     = useState({ title: "", priority: "Medium", due_date: "" });
+  const [savingTask,    setSavingTask]    = useState(false);
   const [showOutreachForm, setShowOutreachForm] = useState(false);
   const [outreachInput,    setOutreachInput]    = useState({ contact_mode: "Call", subject: "", message: "" });
   const [savingOutreach,   setSavingOutreach]   = useState(false);
+  const [aiPitch,     setAiPitch]     = useState("");
+  const [aiAnalysis,  setAiAnalysis]  = useState("");
+  const [aiStrategy,  setAiStrategy]  = useState("");
+  const [aiObjHandle, setAiObjHandle] = useState("");
+  const [loadingAI,   setLoadingAI]   = useState<Record<string, boolean>>({});
+  const [activeTab,   setActiveTab]   = useState<"overview"|"tasks"|"outreach"|"notes">("overview");
 
-  // AI state
-  const [aiPitch,      setAiPitch]      = useState("");
-  const [aiAnalysis,   setAiAnalysis]   = useState("");
-  const [aiStrategy,   setAiStrategy]   = useState("");
-  const [aiObjHandle,  setAiObjHandle]  = useState("");
-  const [loadingAI,    setLoadingAI]    = useState<Record<string, boolean>>({});
-
-  // Active tab
-  const [activeTab, setActiveTab] = useState<"overview"|"tasks"|"outreach"|"notes">("overview");
-
-  // ── Fetch ────────────────────────────────────────────────────────────────────
+  // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -222,14 +206,14 @@ export default function LeadDetail() {
   useEffect(() => {
     if (!id) return;
     const ch = supabase.channel(`lead-detail-${id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "lead_notes",      filter: `lead_id=eq.${id}` }, fetchAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks",           filter: `lead_id=eq.${id}` }, fetchAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "outreach_history",filter: `lead_id=eq.${id}` }, fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "lead_notes",       filter: `lead_id=eq.${id}` }, fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks",            filter: `lead_id=eq.${id}` }, fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "outreach_history", filter: `lead_id=eq.${id}` }, fetchAll)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [id, fetchAll]);
 
-  // ── Actions ───────────────────────────────────────────────────────────────────
+  // ── Actions ────────────────────────────────────────────────────────────────
   async function updateStatus(status: string) {
     if (!id) return;
     await supabase.from("leads").update({ status }).eq("id", id);
@@ -246,9 +230,13 @@ export default function LeadDetail() {
   }
 
   async function addNote() {
-    if (!noteInput.trim() || !id) return;
+    if (!noteInput.trim() || !id || !user?.id) return;
     setSavingNote(true);
-    await supabase.from("lead_notes").insert({ lead_id: id, note: noteInput.trim() });
+    await supabase.from("lead_notes").insert({
+      lead_id: id,
+      note:    noteInput.trim(),
+      user_id: user.id, // ← AUTH
+    });
     setNoteInput("");
     setSavingNote(false);
     fetchAll();
@@ -260,9 +248,14 @@ export default function LeadDetail() {
   }
 
   async function addTask() {
-    if (!taskInput.title.trim() || !id) return;
+    if (!taskInput.title.trim() || !id || !user?.id) return;
     setSavingTask(true);
-    await supabase.from("tasks").insert({ lead_id: id, ...taskInput, is_done: false });
+    await supabase.from("tasks").insert({
+      lead_id: id,
+      user_id: user.id, // ← AUTH
+      ...taskInput,
+      is_done: false,
+    });
     setTaskInput({ title: "", priority: "Medium", due_date: "" });
     setShowTaskForm(false);
     setSavingTask(false);
@@ -280,10 +273,11 @@ export default function LeadDetail() {
   }
 
   async function addOutreach() {
-    if (!outreachInput.message.trim() || !id) return;
+    if (!outreachInput.message.trim() || !id || !user?.id) return;
     setSavingOutreach(true);
     await supabase.from("outreach_history").insert({
       lead_id:      id,
+      user_id:      user.id, // ← AUTH
       contact_mode: outreachInput.contact_mode,
       subject:      outreachInput.subject,
       message:      outreachInput.message,
@@ -308,7 +302,7 @@ export default function LeadDetail() {
     }
   }
 
-  // ── AI Functions ───────────────────────────────────────────────────────────────
+  // ── AI Functions ───────────────────────────────────────────────────────────
   async function genPitch() {
     if (!lead) return;
     setLoadingAI((p) => ({ ...p, pitch: true }));
@@ -337,7 +331,7 @@ Opportunity Score: ${lead.score}/100
 
 Give a 4-point analysis:
 1. 🎯 Opportunity: Why this is a good/bad lead
-2. 💰 Revenue Potential: Estimated deal size and upsell potential  
+2. 💰 Revenue Potential: Estimated deal size and upsell potential
 3. ⚡ Pain Points: What problems they likely have (website/digital)
 4. 🚀 Approach: Best way to approach this specific business
 
@@ -359,7 +353,7 @@ Open Tasks: ${tasks.filter((t) => !t.is_done).length}
 
 Give a 3-step closing action plan for THIS WEEK. Be tactical.
 Step 1: Immediate action (today)
-Step 2: Follow-up (day 2-3)  
+Step 2: Follow-up (day 2-3)
 Step 3: Close move (day 5-7)
 Max 150 words. Be direct and specific.`, 250
     );
@@ -375,7 +369,7 @@ Max 150 words. Be direct and specific.`, 250
 Business: ${lead.business_name}
 
 Give the TOP 3 objections this ${lead.category} owner will say and exactly how to handle each.
-Format: 
+Format:
 ❌ Objection: [what they say]
 ✅ Response: [what you say back]
 
@@ -385,7 +379,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
     setLoadingAI((p) => ({ ...p, objection: false }));
   }
 
-  // ── Render: Loading ──────────────────────────────────────────────────────────
+  // ── Loading / Error ────────────────────────────────────────────────────────
   if (loading) return (
     <div className="flex items-center justify-center h-screen">
       <div className="text-center space-y-3">
@@ -403,38 +397,32 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
     </div>
   );
 
-  const doneTasks = tasks.filter((t) => t.is_done).length;
+  const doneTasks  = tasks.filter((t) => t.is_done).length;
   const scoreColor = lead.score >= 70 ? "text-red-400" : lead.score >= 45 ? "text-amber-400" : "text-slate-400";
 
-  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen">
 
-      {/* ── TOP HERO BANNER ── */}
+      {/* ── HERO BANNER ── */}
       <div className="relative overflow-hidden border-b border-border/40"
         style={{ background: "linear-gradient(135deg, hsl(215,30%,8%) 0%, hsl(215,25%,11%) 100%)" }}>
 
-        {/* Ambient glow behind score */}
         <div className="absolute right-32 top-1/2 -translate-y-1/2 w-48 h-48 rounded-full opacity-10 blur-3xl"
           style={{ backgroundColor: lead.score >= 70 ? "#ef4444" : lead.score >= 45 ? "#f59e0b" : "#64748b" }} />
 
         <div className="relative px-6 py-6">
-          {/* Back */}
           <button onClick={() => navigate("/leads")}
             className="flex items-center gap-1.5 text-xs font-stats text-muted-foreground hover:text-foreground mb-5 transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Leads
           </button>
 
           <div className="flex items-start justify-between gap-6 flex-wrap">
-
-            {/* Left: Identity */}
+            {/* Identity */}
             <div className="flex items-start gap-5 flex-1 min-w-0">
-              {/* Avatar */}
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-lg font-heading font-bold text-primary-foreground shrink-0"
                 style={{ background: "var(--gradient-primary)" }}>
                 {lead.business_name.charAt(0)}
               </div>
-
               <div className="min-w-0">
                 <h1 className="text-2xl font-heading font-bold text-foreground leading-tight truncate">
                   {lead.business_name}
@@ -455,22 +443,18 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                     </span>
                   )}
                 </div>
-
-                {/* Quick contacts */}
                 <div className="flex items-center gap-3 mt-3 flex-wrap">
                   {lead.phone && (
                     <a href={`tel:${lead.phone}`}
                       className="flex items-center gap-1.5 text-xs font-stats text-muted-foreground hover:text-primary transition-colors group">
-                      <Phone className="w-3.5 h-3.5 group-hover:text-primary" />
-                      {lead.phone}
+                      <Phone className="w-3.5 h-3.5 group-hover:text-primary" />{lead.phone}
                       <CopyBtn text={lead.phone} />
                     </a>
                   )}
                   {lead.email && (
                     <a href={`mailto:${lead.email}`}
-                      className="flex items-center gap-1.5 text-xs font-stats text-muted-foreground hover:text-primary transition-colors group">
-                      <Mail className="w-3.5 h-3.5 group-hover:text-primary" />
-                      {lead.email}
+                      className="flex items-center gap-1.5 text-xs font-stats text-muted-foreground hover:text-primary transition-colors">
+                      <Mail className="w-3.5 h-3.5" />{lead.email}
                     </a>
                   )}
                   {lead.website && (
@@ -496,12 +480,10 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
               </div>
             </div>
 
-            {/* Right: Score + Status */}
+            {/* Score + Status */}
             <div className="flex items-center gap-6 shrink-0">
               <ScoreRing score={lead.score} />
-
               <div className="space-y-2">
-                {/* Status */}
                 <div className="relative">
                   {editStatus ? (
                     <div className="flex flex-col gap-1 bg-popover border border-border rounded-xl p-2 shadow-xl z-20 absolute right-0 top-0 w-44">
@@ -520,8 +502,6 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                     </button>
                   )}
                 </div>
-
-                {/* Deal Value */}
                 <div className="flex items-center gap-1.5">
                   {editDealValue ? (
                     <div className="flex items-center gap-1">
@@ -542,7 +522,6 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                     </button>
                   )}
                 </div>
-
                 <button onClick={fetchAll}
                   className="flex items-center gap-1 text-[10px] font-stats text-muted-foreground hover:text-foreground transition-colors">
                   <RefreshCw className="w-3 h-3" /> Refresh
@@ -551,7 +530,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
             </div>
           </div>
 
-          {/* Tags row */}
+          {/* Tags */}
           <div className="flex items-center gap-2 mt-4 flex-wrap">
             {leadTags.map((tag) => (
               <button key={tag.id} onClick={() => toggleTag(tag)}
@@ -560,7 +539,6 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                 <Tag className="w-2.5 h-2.5" /> {tag.name} <X className="w-2.5 h-2.5" />
               </button>
             ))}
-            {/* Add tag dropdown */}
             {allTags.filter((t) => !leadTags.some((lt) => lt.id === t.id)).map((tag) => (
               <button key={tag.id} onClick={() => toggleTag(tag)}
                 className="inline-flex items-center gap-1 text-[10px] font-stats px-2 py-1 rounded-full border border-dashed border-border text-muted-foreground hover:border-primary/50 transition-all">
@@ -575,9 +553,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
           {(["overview","tasks","outreach","notes"] as const).map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`px-4 py-2.5 text-xs font-stats capitalize transition-all relative ${
-                activeTab === tab
-                  ? "text-primary"
-                  : "text-muted-foreground hover:text-foreground"
+                activeTab === tab ? "text-primary" : "text-muted-foreground hover:text-foreground"
               }`}>
               {tab}
               {tab === "tasks"    && tasks.filter((t) => !t.is_done).length > 0 && (
@@ -586,18 +562,13 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                 </span>
               )}
               {tab === "notes"    && notes.length > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground text-[9px]">
-                  {notes.length}
-                </span>
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground text-[9px]">{notes.length}</span>
               )}
               {tab === "outreach" && outreach.length > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground text-[9px]">
-                  {outreach.length}
-                </span>
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground text-[9px]">{outreach.length}</span>
               )}
               {activeTab === tab && (
-                <motion.div layoutId="tab-underline"
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+                <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
               )}
             </button>
           ))}
@@ -608,22 +579,19 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
       <div className="p-6">
         <AnimatePresence mode="wait">
 
-          {/* ══ OVERVIEW TAB ══ */}
+          {/* OVERVIEW */}
           {activeTab === "overview" && (
-            <motion.div key="overview"
-              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            <motion.div key="overview" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="grid grid-cols-1 xl:grid-cols-3 gap-5">
 
-              {/* LEFT COL */}
               <div className="xl:col-span-2 space-y-5">
-
                 {/* Quick Stats */}
                 <div className="grid grid-cols-4 gap-3">
                   {[
-                    { label: "Tasks",    value: `${doneTasks}/${tasks.length}`,  icon: CheckCircle2, color: "text-success"    },
-                    { label: "Outreach", value: outreach.length,                 icon: Send,         color: "text-cyan-400"  },
-                    { label: "Notes",    value: notes.length,                    icon: FileText,     color: "text-violet-400"},
-                    { label: "Score",    value: lead.score,                      icon: BarChart2,    color: scoreColor       },
+                    { label: "Tasks",    value: `${doneTasks}/${tasks.length}`, icon: CheckCircle2, color: "text-success"     },
+                    { label: "Outreach", value: outreach.length,                icon: Send,         color: "text-cyan-400"   },
+                    { label: "Notes",    value: notes.length,                   icon: FileText,     color: "text-violet-400" },
+                    { label: "Score",    value: lead.score,                     icon: BarChart2,    color: scoreColor        },
                   ].map((s) => (
                     <div key={s.label} className="glass rounded-xl p-3 text-center">
                       <s.icon className={`w-4 h-4 mx-auto mb-1 ${s.color}`} />
@@ -633,7 +601,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                   ))}
                 </div>
 
-                {/* ── AI PITCH ── */}
+                {/* AI Pitch */}
                 <SectionCard title="AI Outreach Pitch" icon={Sparkles}
                   action={
                     <button onClick={genPitch} disabled={loadingAI.pitch}
@@ -645,8 +613,8 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                   {aiPitch ? (
                     <div className="relative">
                       <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{aiPitch}</p>
-                      <button onClick={() => { navigator.clipboard.writeText(aiPitch); }}
-                        className="absolute top-0 right-0 flex items-center gap-1 text-[10px] font-stats text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded bg-muted/50">
+                      <button onClick={() => navigator.clipboard.writeText(aiPitch)}
+                        className="absolute top-0 right-0 flex items-center gap-1 text-[10px] font-stats text-muted-foreground hover:text-primary px-2 py-1 rounded bg-muted/50">
                         <Copy className="w-3 h-3" /> Copy
                       </button>
                     </div>
@@ -663,7 +631,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                   )}
                 </SectionCard>
 
-                {/* ── AI BUSINESS ANALYSIS ── */}
+                {/* Business Intelligence */}
                 <SectionCard title="Business Intelligence" icon={Brain}
                   action={
                     <button onClick={genAnalysis} disabled={loadingAI.analysis}
@@ -676,9 +644,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                     <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{aiAnalysis}</p>
                   ) : (
                     <div className="flex items-center gap-3 py-4">
-                      <div className="p-3 rounded-xl bg-primary/5 border border-primary/10">
-                        <Brain className="w-5 h-5 text-primary opacity-50" />
-                      </div>
+                      <div className="p-3 rounded-xl bg-primary/5 border border-primary/10"><Brain className="w-5 h-5 text-primary opacity-50" /></div>
                       <div>
                         <p className="text-sm text-foreground">Deep business analysis</p>
                         <p className="text-xs text-muted-foreground">Opportunity, revenue potential, pain points & approach</p>
@@ -687,7 +653,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                   )}
                 </SectionCard>
 
-                {/* ── AI CLOSING STRATEGY ── */}
+                {/* Closing Strategy */}
                 <SectionCard title="Closing Strategy" icon={Target}
                   action={
                     <button onClick={genStrategy} disabled={loadingAI.strategy}
@@ -700,9 +666,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                     <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{aiStrategy}</p>
                   ) : (
                     <div className="flex items-center gap-3 py-4">
-                      <div className="p-3 rounded-xl bg-primary/5 border border-primary/10">
-                        <Target className="w-5 h-5 text-primary opacity-50" />
-                      </div>
+                      <div className="p-3 rounded-xl bg-primary/5 border border-primary/10"><Target className="w-5 h-5 text-primary opacity-50" /></div>
                       <div>
                         <p className="text-sm text-foreground">3-step weekly closing plan</p>
                         <p className="text-xs text-muted-foreground">Tactical action plan based on current status & outreach history</p>
@@ -711,7 +675,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                   )}
                 </SectionCard>
 
-                {/* ── AI OBJECTION HANDLER ── */}
+                {/* Objection Handler */}
                 <SectionCard title="Objection Handler" icon={Shield}
                   action={
                     <button onClick={genObjectionHandler} disabled={loadingAI.objection}
@@ -724,9 +688,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                     <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{aiObjHandle}</p>
                   ) : (
                     <div className="flex items-center gap-3 py-4">
-                      <div className="p-3 rounded-xl bg-primary/5 border border-primary/10">
-                        <Shield className="w-5 h-5 text-primary opacity-50" />
-                      </div>
+                      <div className="p-3 rounded-xl bg-primary/5 border border-primary/10"><Shield className="w-5 h-5 text-primary opacity-50" /></div>
                       <div>
                         <p className="text-sm text-foreground">Handle their objections</p>
                         <p className="text-xs text-muted-foreground">Top 3 objections from {lead.category} owners + exact responses</p>
@@ -738,15 +700,13 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
 
               {/* RIGHT SIDEBAR */}
               <div className="space-y-5">
-
-                {/* Lead Info */}
                 <SectionCard title="Lead Details" icon={Users}>
                   <dl className="space-y-3">
                     {[
-                      { label: "Source",   value: lead.source   || "Manual"      },
-                      { label: "Added",    value: new Date(lead.created_at).toLocaleDateString("en-IN") },
-                      { label: "Website",  value: lead.has_website ? "Yes ✓" : "No ✗"                  },
-                      { label: "Rating",   value: lead.rating > 0 ? `${lead.rating} ⭐ (${lead.review_count})` : "—" },
+                      { label: "Source",  value: lead.source || "Manual" },
+                      { label: "Added",   value: new Date(lead.created_at).toLocaleDateString("en-IN") },
+                      { label: "Website", value: lead.has_website ? "Yes ✓" : "No ✗" },
+                      { label: "Rating",  value: lead.rating > 0 ? `${lead.rating} ⭐ (${lead.review_count})` : "—" },
                     ].map((item) => (
                       <div key={item.label} className="flex items-center justify-between">
                         <dt className="text-[10px] font-stats text-muted-foreground uppercase tracking-widest">{item.label}</dt>
@@ -756,15 +716,14 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                   </dl>
                 </SectionCard>
 
-                {/* Opportunity Signals */}
                 <SectionCard title="Opportunity Signals" icon={Flame}>
                   <div className="space-y-2.5">
                     {[
-                      { label: "No website",        active: !lead.has_website,          color: "text-red-400"    },
-                      { label: "Low review count",  active: lead.review_count < 20,     color: "text-amber-400"  },
-                      { label: "High rating",       active: lead.rating >= 4.0,         color: "text-emerald-400"},
-                      { label: "Large city",        active: ["Delhi","Mumbai","Bangalore","Hyderabad","Chennai","Pune"].includes(lead.city || ""), color: "text-cyan-400" },
-                      { label: "High score lead",   active: lead.score >= 65,           color: "text-primary"    },
+                      { label: "No website",       active: !lead.has_website,          color: "text-red-400"     },
+                      { label: "Low review count", active: lead.review_count < 20,     color: "text-amber-400"   },
+                      { label: "High rating",      active: lead.rating >= 4.0,         color: "text-emerald-400" },
+                      { label: "Large city",       active: ["Delhi","Mumbai","Bangalore","Hyderabad","Chennai","Pune"].includes(lead.city || ""), color: "text-cyan-400" },
+                      { label: "High score lead",  active: lead.score >= 65,           color: "text-primary"     },
                     ].map((sig) => (
                       <div key={sig.label} className={`flex items-center gap-2 text-xs ${sig.active ? sig.color : "text-muted-foreground opacity-40"}`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${sig.active ? "bg-current" : "bg-muted"}`} />
@@ -775,40 +734,25 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                   </div>
                 </SectionCard>
 
-                {/* Recent Tasks preview */}
                 <SectionCard title="Open Tasks" icon={CheckCircle2}
-                  action={
-                    <button onClick={() => setActiveTab("tasks")}
-                      className="text-[10px] font-stats text-primary hover:underline flex items-center gap-0.5">
-                      View all <ChevronRight className="w-3 h-3" />
-                    </button>
-                  }>
+                  action={<button onClick={() => setActiveTab("tasks")} className="text-[10px] font-stats text-primary hover:underline flex items-center gap-0.5">View all <ChevronRight className="w-3 h-3" /></button>}>
                   {tasks.filter((t) => !t.is_done).length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-3">No open tasks</p>
                   ) : (
                     <div className="space-y-2">
                       {tasks.filter((t) => !t.is_done).slice(0, 3).map((t) => (
                         <div key={t.id} className="flex items-center gap-2">
-                          <button onClick={() => toggleTask(t)}
-                            className="w-3.5 h-3.5 rounded-full border border-border hover:border-primary transition-colors shrink-0" />
+                          <button onClick={() => toggleTask(t)} className="w-3.5 h-3.5 rounded-full border border-border hover:border-primary transition-colors shrink-0" />
                           <span className="text-xs text-foreground truncate flex-1">{t.title}</span>
-                          <span className={`text-[9px] font-stats px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[t.priority] ?? ""}`}>
-                            {t.priority}
-                          </span>
+                          <span className={`text-[9px] font-stats px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[t.priority] ?? ""}`}>{t.priority}</span>
                         </div>
                       ))}
                     </div>
                   )}
                 </SectionCard>
 
-                {/* Recent Outreach preview */}
                 <SectionCard title="Outreach History" icon={Activity}
-                  action={
-                    <button onClick={() => setActiveTab("outreach")}
-                      className="text-[10px] font-stats text-primary hover:underline flex items-center gap-0.5">
-                      View all <ChevronRight className="w-3 h-3" />
-                    </button>
-                  }>
+                  action={<button onClick={() => setActiveTab("outreach")} className="text-[10px] font-stats text-primary hover:underline flex items-center gap-0.5">View all <ChevronRight className="w-3 h-3" /></button>}>
                   {outreach.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-3">No outreach logged</p>
                   ) : (
@@ -829,15 +773,12 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
             </motion.div>
           )}
 
-          {/* ══ TASKS TAB ══ */}
+          {/* TASKS TAB */}
           {activeTab === "tasks" && (
-            <motion.div key="tasks"
-              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            <motion.div key="tasks" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="max-w-2xl space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground font-stats">
-                  {doneTasks}/{tasks.length} tasks complete
-                </p>
+                <p className="text-sm text-muted-foreground font-stats">{doneTasks}/{tasks.length} tasks complete</p>
                 <button onClick={() => setShowTaskForm(!showTaskForm)}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-heading font-semibold text-primary-foreground hover:opacity-90 transition-all"
                   style={{ background: "var(--gradient-primary)" }}>
@@ -847,8 +788,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
 
               <AnimatePresence>
                 {showTaskForm && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                    className="overflow-hidden">
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                     <div className="glass rounded-xl p-4 space-y-3 border border-primary/20">
                       <input autoFocus type="text" placeholder="Task title..."
                         value={taskInput.title}
@@ -866,8 +806,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                         </select>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setShowTaskForm(false)}
-                          className="flex-1 py-2 rounded-lg border border-border text-xs text-muted-foreground">Cancel</button>
+                        <button onClick={() => setShowTaskForm(false)} className="flex-1 py-2 rounded-lg border border-border text-xs text-muted-foreground">Cancel</button>
                         <button onClick={addTask} disabled={savingTask}
                           className="flex-1 py-2 rounded-lg text-xs font-heading font-semibold text-primary-foreground disabled:opacity-40 flex items-center justify-center gap-1.5"
                           style={{ background: "var(--gradient-primary)" }}>
@@ -886,12 +825,11 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                     <p className="text-sm text-muted-foreground">No tasks yet</p>
                   </div>
                 ) : (
-                  [...tasks].sort((a,b) => Number(a.is_done) - Number(b.is_done)).map((task) => (
+                  [...tasks].sort((a, b) => Number(a.is_done) - Number(b.is_done)).map((task) => (
                     <motion.div key={task.id} layout
                       className={`glass rounded-xl p-4 flex items-center gap-3 group transition-all ${task.is_done ? "opacity-50" : ""}`}>
                       <button onClick={() => toggleTask(task)}
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                          task.is_done ? "bg-success border-success" : "border-border hover:border-primary"}`}>
+                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${task.is_done ? "bg-success border-success" : "border-border hover:border-primary"}`}>
                         {task.is_done && <Check className="w-3 h-3 text-background" />}
                       </button>
                       <div className="flex-1 min-w-0">
@@ -902,11 +840,8 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                           </p>
                         )}
                       </div>
-                      <span className={`text-[10px] font-stats px-2 py-0.5 rounded border ${PRIORITY_COLORS[task.priority] ?? ""}`}>
-                        {task.priority}
-                      </span>
-                      <button onClick={() => deleteTask(task.id)}
-                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all">
+                      <span className={`text-[10px] font-stats px-2 py-0.5 rounded border ${PRIORITY_COLORS[task.priority] ?? ""}`}>{task.priority}</span>
+                      <button onClick={() => deleteTask(task.id)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </motion.div>
@@ -916,10 +851,9 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
             </motion.div>
           )}
 
-          {/* ══ OUTREACH TAB ══ */}
+          {/* OUTREACH TAB */}
           {activeTab === "outreach" && (
-            <motion.div key="outreach"
-              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            <motion.div key="outreach" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="max-w-2xl space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground font-stats">{outreach.length} interactions logged</p>
@@ -932,8 +866,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
 
               <AnimatePresence>
                 {showOutreachForm && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                    className="overflow-hidden">
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                     <div className="glass rounded-xl p-4 space-y-3 border border-primary/20">
                       <select value={outreachInput.contact_mode}
                         onChange={(e) => setOutreachInput((p) => ({ ...p, contact_mode: e.target.value }))}
@@ -949,8 +882,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                         onChange={(e) => setOutreachInput((p) => ({ ...p, message: e.target.value }))}
                         className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none" />
                       <div className="flex gap-2">
-                        <button onClick={() => setShowOutreachForm(false)}
-                          className="flex-1 py-2 rounded-lg border border-border text-xs text-muted-foreground">Cancel</button>
+                        <button onClick={() => setShowOutreachForm(false)} className="flex-1 py-2 rounded-lg border border-border text-xs text-muted-foreground">Cancel</button>
                         <button onClick={addOutreach} disabled={savingOutreach}
                           className="flex-1 py-2 rounded-lg text-xs font-heading font-semibold text-primary-foreground disabled:opacity-40 flex items-center justify-center gap-1.5"
                           style={{ background: "var(--gradient-primary)" }}>
@@ -975,9 +907,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
                       className="relative glass rounded-xl p-4">
                       <div className="absolute -left-[17px] top-4 w-3 h-3 rounded-full bg-primary border-2 border-background" />
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-stats text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
-                          {o.contact_mode}
-                        </span>
+                        <span className="text-xs font-stats text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">{o.contact_mode}</span>
                         <span className="text-[10px] font-stats text-muted-foreground">
                           {new Date(o.contacted_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                         </span>
@@ -991,16 +921,12 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
             </motion.div>
           )}
 
-          {/* ══ NOTES TAB ══ */}
+          {/* NOTES TAB */}
           {activeTab === "notes" && (
-            <motion.div key="notes"
-              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            <motion.div key="notes" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="max-w-2xl space-y-4">
-
-              {/* Add note */}
               <div className="glass rounded-xl p-4 space-y-3">
-                <textarea
-                  placeholder={`Add a note about ${lead.business_name}...`}
+                <textarea placeholder={`Add a note about ${lead.business_name}...`}
                   rows={3} value={noteInput}
                   onChange={(e) => setNoteInput(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none" />
@@ -1037,6 +963,7 @@ Be realistic to Indian business owners. Keep responses under 2 sentences each. M
               )}
             </motion.div>
           )}
+
         </AnimatePresence>
       </div>
     </div>
