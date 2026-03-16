@@ -2,9 +2,9 @@ import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Mail, MessageSquare, Phone, Send, Clock, Eye,
-  Reply, MousePointerClick, ChevronRight, Copy,
+  Reply, ChevronRight, Copy,
   Sparkles, Loader2, RefreshCw, Check, Search,
-  Filter, X, Plus, AlertCircle, Zap
+  X, Plus, AlertCircle, Zap
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
@@ -15,10 +15,10 @@ const supabase = createClient(
 );
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type OutreachMode = "Call" | "Email" | "WhatsApp" | "LinkedIn" | "Other";
+type OutreachMode   = "Call" | "Email" | "WhatsApp" | "LinkedIn" | "Other";
 type OutreachStatus = "Sent" | "Opened" | "Replied" | "Bounced";
-type Tone = "Professional" | "Friendly" | "Direct" | "Confident High-Value";
-type TemplateType = "Cold Email" | "WhatsApp Pitch" | "Call Script" | "Follow-Up";
+type Tone           = "Professional" | "Friendly" | "Direct" | "Confident High-Value";
+type TemplateType   = "Cold Email" | "WhatsApp Pitch" | "Call Script" | "Follow-Up";
 
 interface OutreachRecord {
   id: string;
@@ -47,27 +47,27 @@ interface Lead {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MODE_CONFIG: Record<OutreachMode, { icon: any; color: string; bg: string }> = {
-  Email:    { icon: Mail,           color: "text-blue-400",    bg: "bg-blue-500/10"    },
-  WhatsApp: { icon: MessageSquare,  color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  Call:     { icon: Phone,          color: "text-cyan-400",    bg: "bg-cyan-500/10"    },
-  LinkedIn: { icon: Send,           color: "text-sky-400",     bg: "bg-sky-500/10"     },
-  Other:    { icon: Send,           color: "text-muted-foreground", bg: "bg-muted"      },
+  Email:    { icon: Mail,          color: "text-blue-400",         bg: "bg-blue-500/10"    },
+  WhatsApp: { icon: MessageSquare, color: "text-emerald-400",      bg: "bg-emerald-500/10" },
+  Call:     { icon: Phone,         color: "text-cyan-400",         bg: "bg-cyan-500/10"    },
+  LinkedIn: { icon: Send,          color: "text-sky-400",          bg: "bg-sky-500/10"     },
+  Other:    { icon: Send,          color: "text-muted-foreground", bg: "bg-muted"          },
 };
 
 const STATUS_CONFIG: Record<OutreachStatus, { label: string; color: string; dot: string }> = {
-  Sent:    { label: "Sent",    color: "text-muted-foreground bg-muted/80 border-border",           dot: "bg-muted-foreground" },
-  Opened:  { label: "Opened",  color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30",           dot: "bg-cyan-400"         },
-  Replied: { label: "Replied", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",  dot: "bg-emerald-400"      },
-  Bounced: { label: "Bounced", color: "text-red-400 bg-red-500/10 border-red-500/30",              dot: "bg-red-400"          },
+  Sent:    { label: "Sent",    color: "text-muted-foreground bg-muted/80 border-border",          dot: "bg-muted-foreground" },
+  Opened:  { label: "Opened",  color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30",          dot: "bg-cyan-400"         },
+  Replied: { label: "Replied", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30", dot: "bg-emerald-400"      },
+  Bounced: { label: "Bounced", color: "text-red-400 bg-red-500/10 border-red-500/30",             dot: "bg-red-400"          },
 };
 
 const TONES: Tone[] = ["Professional", "Friendly", "Direct", "Confident High-Value"];
 
 const TEMPLATE_CONFIG: { type: TemplateType; icon: any; desc: string; mode: OutreachMode }[] = [
-  { type: "Cold Email",    icon: Mail,          desc: "First-touch personalized email",   mode: "Email"    },
-  { type: "WhatsApp Pitch",icon: MessageSquare, desc: "Short conversational message",     mode: "WhatsApp" },
-  { type: "Call Script",   icon: Phone,         desc: "Structured cold call flow",        mode: "Call"     },
-  { type: "Follow-Up",     icon: Reply,         desc: "Re-engage after no reply",         mode: "Email"    },
+  { type: "Cold Email",     icon: Mail,          desc: "First-touch personalized email",  mode: "Email"    },
+  { type: "WhatsApp Pitch", icon: MessageSquare, desc: "Short conversational message",    mode: "WhatsApp" },
+  { type: "Call Script",    icon: Phone,         desc: "Structured cold call flow",       mode: "Call"     },
+  { type: "Follow-Up",      icon: Reply,         desc: "Re-engage after no reply",        mode: "Email"    },
 ];
 
 function timeAgo(iso: string): string {
@@ -83,28 +83,21 @@ function timeAgo(iso: string): string {
 }
 
 // ─── AI Generator via Groq ────────────────────────────────────────────────────
-async function generateOutreach(
-  lead: Lead,
-  templateType: TemplateType,
-  tone: Tone
-): Promise<string> {
+async function generateOutreach(lead: Lead, templateType: TemplateType, tone: Tone): Promise<string> {
   const groqKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!groqKey) return "Add VITE_GROQ_API_KEY to .env to enable AI generation.";
 
   const prompts: Record<TemplateType, string> = {
-    "Cold Email": `Write a cold email subject line and body for a freelancer selling web design + CRM services to ${lead.business_name} (${lead.category}, ${lead.city}). Website: ${lead.website || "none"}. Rating: ${lead.rating}★ (${lead.review_count} reviews). Opportunities: ${(lead.ai_opportunities ?? []).join(", ") || "needs digital presence"}. Tone: ${tone}. Format: Subject: [line]\n\n[body]. Keep it under 120 words. No fluff.`,
+    "Cold Email":     `Write a cold email subject line and body for a freelancer selling web design + CRM services to ${lead.business_name} (${lead.category}, ${lead.city}). Website: ${lead.website || "none"}. Rating: ${lead.rating}★ (${lead.review_count} reviews). Opportunities: ${(lead.ai_opportunities ?? []).join(", ") || "needs digital presence"}. Tone: ${tone}. Format: Subject: [line]\n\n[body]. Keep it under 120 words. No fluff.`,
     "WhatsApp Pitch": `Write a WhatsApp cold message for ${lead.business_name} (${lead.category}, ${lead.city}). Tone: ${tone}. Max 4 lines. Direct, conversational, end with a soft CTA. No formal greetings.`,
-    "Call Script": `Write a 30-second cold call script for ${lead.business_name} (${lead.category}, ${lead.city}). Tone: ${tone}. Format: Intro → Pain point → Value prop → CTA. Bullet points. Keep it natural.`,
-    "Follow-Up": `Write a follow-up message for ${lead.business_name} who hasn't replied to the first outreach. Tone: ${tone}. Reference that we reached out before. Max 80 words. Add value, not pressure.`,
+    "Call Script":    `Write a 30-second cold call script for ${lead.business_name} (${lead.category}, ${lead.city}). Tone: ${tone}. Format: Intro → Pain point → Value prop → CTA. Bullet points. Keep it natural.`,
+    "Follow-Up":      `Write a follow-up message for ${lead.business_name} who hasn't replied to the first outreach. Tone: ${tone}. Reference that we reached out before. Max 80 words. Add value, not pressure.`,
   };
 
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${groqKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: prompts[templateType] }],
@@ -121,12 +114,7 @@ async function generateOutreach(
 
 // ─── Log Outreach Modal ───────────────────────────────────────────────────────
 function LogOutreachModal({
-  leads,
-  prefillLeadId,
-  prefillMode,
-  prefillMessage,
-  onClose,
-  onSaved,
+  leads, prefillLeadId, prefillMode, prefillMessage, onClose, onSaved,
 }: {
   leads: Lead[];
   prefillLeadId?: string;
@@ -135,21 +123,26 @@ function LogOutreachModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [leadId, setLeadId]     = useState(prefillLeadId ?? "");
-  const [mode, setMode]         = useState<OutreachMode>(prefillMode ?? "Email");
-  const [subject, setSubject]   = useState("");
-  const [message, setMessage]   = useState(prefillMessage ?? "");
-  const [status, setStatus]     = useState<OutreachStatus>("Sent");
-  const [saving, setSaving]     = useState(false);
-  const [search, setSearch]     = useState("");
+  const [leadId,  setLeadId]  = useState(prefillLeadId ?? "");
+  const [mode,    setMode]    = useState<OutreachMode>(prefillMode ?? "Email");
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState(prefillMessage ?? "");
+  const [status,  setStatus]  = useState<OutreachStatus>("Sent");
+  const [saving,  setSaving]  = useState(false);
+  const [search,  setSearch]  = useState("");
 
   const filteredLeads = leads.filter((l) =>
     l.business_name.toLowerCase().includes(search.toLowerCase())
   );
 
+  // ✅ FIX: stamp user_id on insert, scope lead update
   async function handleSave() {
     if (!leadId) return;
     setSaving(true);
+
+    const { data: { user } } = await supabase.auth.getUser(); // ✅
+    if (!user) { setSaving(false); return; }
+
     await supabase.from("outreach_history").insert({
       lead_id:      leadId,
       contact_mode: mode,
@@ -157,13 +150,14 @@ function LogOutreachModal({
       message:      message || null,
       status,
       contacted_at: new Date().toISOString(),
+      user_id:      user.id,                    // ✅
     });
 
-    // Auto-update lead status if it's still New Lead
     await supabase
       .from("leads")
       .update({ status: "Contacted" })
       .eq("id", leadId)
+      .eq("user_id", user.id)                   // ✅
       .eq("status", "New Lead");
 
     setSaving(false);
@@ -173,9 +167,7 @@ function LogOutreachModal({
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onClick={onClose}
     >
@@ -204,12 +196,9 @@ function LogOutreachModal({
             <div className="space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                <input
-                  placeholder="Search lead..."
-                  value={search}
+                <input placeholder="Search lead..." value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary" />
               </div>
               {search && (
                 <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-muted/50">
@@ -243,7 +232,7 @@ function LogOutreachModal({
           </div>
         </div>
 
-        {/* Subject (email only) */}
+        {/* Subject */}
         {(mode === "Email" || mode === "LinkedIn") && (
           <div>
             <label className="text-[10px] font-stats text-muted-foreground uppercase tracking-widest mb-1.5 block">Subject</label>
@@ -296,49 +285,51 @@ function LogOutreachModal({
 export default function Outreach() {
   const navigate = useNavigate();
 
-  // Data
-  const [records, setRecords]     = useState<OutreachRecord[]>([]);
-  const [leads, setLeads]         = useState<Lead[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
+  const [records,  setRecords]  = useState<OutreachRecord[]>([]);
+  const [leads,    setLeads]    = useState<Lead[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
 
-  // AI Generator state
-  const [selectedTone, setSelectedTone]         = useState<Tone>("Professional");
+  const [selectedTone,     setSelectedTone]     = useState<Tone>("Professional");
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateType>("Cold Email");
-  const [selectedLeadId, setSelectedLeadId]     = useState<string>("");
+  const [selectedLeadId,   setSelectedLeadId]   = useState<string>("");
   const [showLeadDropdown, setShowLeadDropdown] = useState(false);
-  const [generatedText, setGeneratedText]       = useState<string>("");
-  const [generating, setGenerating]             = useState(false);
-  const [copied, setCopied]                     = useState(false);
-  const [leadSearch, setLeadSearch]             = useState("");
+  const [generatedText,    setGeneratedText]    = useState<string>("");
+  const [generating,       setGenerating]       = useState(false);
+  const [copied,           setCopied]           = useState(false);
+  const [leadSearch,       setLeadSearch]       = useState("");
 
-  // Log modal
-  const [showLogModal, setShowLogModal]   = useState(false);
-  const [logPrefill, setLogPrefill]       = useState<{ leadId?: string; mode?: OutreachMode; message?: string }>({});
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [logPrefill,   setLogPrefill]   = useState<{ leadId?: string; mode?: OutreachMode; message?: string }>({});
 
-  // Filters
-  const [filterMode, setFilterMode]     = useState<OutreachMode | "All">("All");
+  const [filterMode,   setFilterMode]   = useState<OutreachMode | "All">("All");
   const [filterStatus, setFilterStatus] = useState<OutreachStatus | "All">("All");
-  const [searchQuery, setSearchQuery]   = useState("");
+  const [searchQuery,  setSearchQuery]  = useState("");
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
+  // ✅ FIX: scope both queries to current user
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      if (!user) throw new Error("Not authenticated");
+
       const [{ data: outreachData, error: outErr }, { data: leadsData, error: leadsErr }] = await Promise.all([
         supabase
           .from("outreach_history")
           .select("id, lead_id, contact_mode, subject, message, status, contacted_at, leads(business_name, city, category)")
+          .eq("user_id", user.id)                               // ✅
           .order("contacted_at", { ascending: false })
           .limit(50),
         supabase
           .from("leads")
           .select("id, business_name, category, city, phone, website, rating, review_count, ai_opportunities")
+          .eq("user_id", user.id)                               // ✅
           .order("score", { ascending: false }),
       ]);
 
-      if (outErr)  throw outErr;
+      if (outErr)   throw outErr;
       if (leadsErr) throw leadsErr;
 
       const mapped: OutreachRecord[] = (outreachData ?? []).map((r: any) => {
@@ -366,7 +357,6 @@ export default function Outreach() {
     }
   }, []);
 
-  // ── Real-time ─────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchAll();
     const ch = supabase
@@ -376,26 +366,34 @@ export default function Outreach() {
     return () => { supabase.removeChannel(ch); };
   }, [fetchAll]);
 
-  // ── Update status ─────────────────────────────────────────────────────────
+  // ✅ FIX: scope status update to current user
   async function handleStatusUpdate(id: string, newStatus: OutreachStatus) {
     setRecords((prev) => prev.map((r) => r.id === id ? { ...r, status: newStatus } : r));
-    await supabase.from("outreach_history").update({ status: newStatus }).eq("id", id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("outreach_history")
+      .update({ status: newStatus })
+      .eq("id", id)
+      .eq("user_id", user?.id);                                 // ✅
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────────
+  // ✅ FIX: scope delete to current user
   async function handleDelete(id: string) {
     setRecords((prev) => prev.filter((r) => r.id !== id));
-    await supabase.from("outreach_history").delete().eq("id", id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("outreach_history")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user?.id);                                 // ✅
   }
 
-  // ── Copy ──────────────────────────────────────────────────────────────────
   async function handleCopy(text: string) {
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // ── AI generate ───────────────────────────────────────────────────────────
   async function handleGenerate() {
     const lead = leads.find((l) => l.id === selectedLeadId);
     if (!lead) return;
@@ -406,7 +404,6 @@ export default function Outreach() {
     setGenerating(false);
   }
 
-  // ── Filter records ────────────────────────────────────────────────────────
   const filtered = records.filter((r) => {
     const q = searchQuery.toLowerCase();
     const matchSearch = r.lead_name.toLowerCase().includes(q) ||
@@ -417,11 +414,10 @@ export default function Outreach() {
     return matchSearch && matchMode && matchStatus;
   });
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
-  const total    = records.length;
-  const opened   = records.filter((r) => ["Opened", "Replied"].includes(r.status)).length;
-  const replied  = records.filter((r) => r.status === "Replied").length;
-  const bounced  = records.filter((r) => r.status === "Bounced").length;
+  const total     = records.length;
+  const opened    = records.filter((r) => ["Opened", "Replied"].includes(r.status)).length;
+  const replied   = records.filter((r) => r.status === "Replied").length;
+  const bounced   = records.filter((r) => r.status === "Bounced").length;
   const openRate  = total > 0 ? Math.round((opened  / total) * 100) : 0;
   const replyRate = total > 0 ? Math.round((replied / total) * 100) : 0;
 
@@ -429,7 +425,6 @@ export default function Outreach() {
     leadSearch.trim() === "" || l.business_name.toLowerCase().includes(leadSearch.toLowerCase())
   ).slice(0, 8);
 
-  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
 
@@ -469,13 +464,13 @@ export default function Outreach() {
         </div>
       )}
 
-      {/* Stats row */}
+      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Sent",  value: loading ? "—" : total,              icon: Send,             color: "text-foreground"  },
-          { label: "Open Rate",   value: loading ? "—" : `${openRate}%`,     icon: Eye,              color: "text-cyan-400"    },
-          { label: "Reply Rate",  value: loading ? "—" : `${replyRate}%`,    icon: Reply,            color: "text-emerald-400" },
-          { label: "Bounced",     value: loading ? "—" : bounced,            icon: AlertCircle,      color: "text-red-400"     },
+          { label: "Total Sent", value: loading ? "—" : total,           icon: Send,        color: "text-foreground"  },
+          { label: "Open Rate",  value: loading ? "—" : `${openRate}%`,  icon: Eye,         color: "text-cyan-400"    },
+          { label: "Reply Rate", value: loading ? "—" : `${replyRate}%`, icon: Reply,       color: "text-emerald-400" },
+          { label: "Bounced",    value: loading ? "—" : bounced,         icon: AlertCircle, color: "text-red-400"     },
         ].map((s, i) => (
           <motion.div key={s.label}
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
@@ -507,9 +502,9 @@ export default function Outreach() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-          {/* Left: controls — template */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Template type */}
+
+            {/* Template */}
             <div>
               <p className="text-[10px] font-stats text-muted-foreground uppercase tracking-widest mb-2">Template</p>
               <div className="grid grid-cols-2 gap-2">
@@ -550,8 +545,6 @@ export default function Outreach() {
             {/* Lead selector */}
             <div>
               <p className="text-[10px] font-stats text-muted-foreground uppercase tracking-widest mb-2">Target Lead</p>
-
-              {/* Selected lead chip */}
               {selectedLeadId && !showLeadDropdown ? (
                 <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-primary/10 border border-primary/30">
                   <div className="flex items-center gap-2">
@@ -582,14 +575,10 @@ export default function Outreach() {
                   />
                 </div>
               )}
-
-              {/* Dropdown list */}
               <AnimatePresence>
                 {showLeadDropdown && !selectedLeadId && (
                   <motion.div
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
+                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
                     className="mt-1 rounded-xl border border-border bg-muted/95 backdrop-blur overflow-hidden shadow-xl max-h-48 overflow-y-auto"
                   >
                     {filteredLeadsForSearch.length === 0 && (
@@ -597,11 +586,7 @@ export default function Outreach() {
                     )}
                     {filteredLeadsForSearch.map((l) => (
                       <button key={l.id}
-                        onClick={() => {
-                          setSelectedLeadId(l.id);
-                          setLeadSearch(l.business_name);
-                          setShowLeadDropdown(false);
-                        }}
+                        onClick={() => { setSelectedLeadId(l.id); setLeadSearch(l.business_name); setShowLeadDropdown(false); }}
                         className="w-full text-left px-3 py-2.5 text-sm transition-colors hover:bg-muted border-b border-border/30 last:border-0 flex items-center justify-between group">
                         <span className="text-foreground group-hover:text-primary transition-colors">{l.business_name}</span>
                         <span className="text-xs text-muted-foreground">{l.city} · {l.category}</span>
@@ -623,7 +608,7 @@ export default function Outreach() {
             </button>
           </div>
 
-          {/* Right: output */}
+          {/* Output panel */}
           <div className="lg:col-span-3 flex flex-col">
             <p className="text-[10px] font-stats text-muted-foreground uppercase tracking-widest mb-2">Generated Output</p>
             <div className="flex-1 relative">
@@ -640,8 +625,7 @@ export default function Outreach() {
                     {generatedText}
                   </pre>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => handleCopy(generatedText)}
+                    <button onClick={() => handleCopy(generatedText)}
                       className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-muted border border-border text-xs font-stats text-muted-foreground hover:text-foreground transition-colors">
                       {copied ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Message</>}
                     </button>
@@ -678,8 +662,6 @@ export default function Outreach() {
             <h3 className="font-heading text-lg text-foreground">Communication History</h3>
             <p className="text-xs text-muted-foreground mt-0.5">{filtered.length} of {records.length} records</p>
           </div>
-
-          {/* Filters */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -687,7 +669,6 @@ export default function Outreach() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-8 pr-3 py-1.5 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary w-40" />
             </div>
-
             <select value={filterMode} onChange={(e) => setFilterMode(e.target.value as any)}
               className="px-3 py-1.5 rounded-lg bg-muted border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary">
               <option value="All">All Channels</option>
@@ -695,7 +676,6 @@ export default function Outreach() {
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
-
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)}
               className="px-3 py-1.5 rounded-lg bg-muted border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary">
               <option value="All">All Status</option>
@@ -706,14 +686,12 @@ export default function Outreach() {
           </div>
         </div>
 
-        {/* Loading */}
         {loading && (
           <div className="space-y-2">
-            {[1,2,3].map((i) => <div key={i} className="h-16 rounded-lg bg-muted/50 animate-pulse" />)}
+            {[1, 2, 3].map((i) => <div key={i} className="h-16 rounded-lg bg-muted/50 animate-pulse" />)}
           </div>
         )}
 
-        {/* Empty */}
         {!loading && filtered.length === 0 && (
           <div className="py-12 text-center space-y-2">
             <Send className="w-7 h-7 text-muted-foreground/30 mx-auto" />
@@ -730,36 +708,28 @@ export default function Outreach() {
           </div>
         )}
 
-        {/* Records list */}
         {!loading && filtered.length > 0 && (
           <div className="space-y-2">
             <AnimatePresence>
               {filtered.map((record, i) => {
-                const modeCfg   = MODE_CONFIG[record.contact_mode]   ?? MODE_CONFIG["Other"];
-                const statusCfg = STATUS_CONFIG[record.status]       ?? STATUS_CONFIG["Sent"];
+                const modeCfg   = MODE_CONFIG[record.contact_mode] ?? MODE_CONFIG["Other"];
+                const statusCfg = STATUS_CONFIG[record.status]     ?? STATUS_CONFIG["Sent"];
                 const ModeIcon  = modeCfg.icon;
                 return (
                   <motion.div key={record.id}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 8 }}
-                    transition={{ delay: i * 0.03 }}
+                    initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 8 }} transition={{ delay: i * 0.03 }}
                     className="flex items-start gap-3 p-3.5 rounded-xl bg-muted/30 hover:bg-muted/50 transition-all group"
                   >
-                    {/* Mode icon */}
                     <div className={`p-2 rounded-lg mt-0.5 shrink-0 ${modeCfg.bg}`}>
                       <ModeIcon className={`w-4 h-4 ${modeCfg.color}`} />
                     </div>
-
-                    {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <button
-                          onClick={() => navigate(`/leads/${record.lead_id}`)}
+                        <button onClick={() => navigate(`/leads/${record.lead_id}`)}
                           className="text-sm font-medium text-foreground hover:text-primary transition-colors">
                           {record.lead_name}
                         </button>
-                        {/* Status badge — clickable to cycle */}
                         <button
                           onClick={() => {
                             const cycle: OutreachStatus[] = ["Sent", "Opened", "Replied", "Bounced"];
@@ -786,8 +756,6 @@ export default function Outreach() {
                         </span>
                       </div>
                     </div>
-
-                    {/* Actions */}
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                       {record.message && (
                         <button onClick={() => handleCopy(record.message!)}

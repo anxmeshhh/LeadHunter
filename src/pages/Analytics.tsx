@@ -40,14 +40,6 @@ function formatRevenue(n: number): string {
   return `₹${n}`;
 }
 
-function getDayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-IN", { weekday: "short" });
-}
-
-function getMonthLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-IN", { month: "short" });
-}
-
 const CHART_COLORS = [
   "hsl(72, 100%, 50%)",
   "hsl(217, 91%, 60%)",
@@ -83,16 +75,20 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function Analytics() {
-  const [leads, setLeads]       = useState<Lead[]>([]);
+  const [leads,    setLeads]    = useState<Lead[]>([]);
   const [outreach, setOutreach] = useState<OutreachEntry[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
+  // ✅ FIX: scope both queries to current user
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      if (!user) throw new Error("Not authenticated");
+
       const [
         { data: leadsData,    error: lErr },
         { data: outreachData, error: oErr },
@@ -100,15 +96,19 @@ export default function Analytics() {
         supabase
           .from("leads")
           .select("id, status, category, deal_value, created_at, city")
+          .eq("user_id", user.id)                  // ✅
           .order("created_at", { ascending: true }),
         supabase
           .from("outreach_history")
           .select("id, contact_mode, contacted_at, lead_id")
+          .eq("user_id", user.id)                  // ✅
           .order("contacted_at", { ascending: true }),
       ]);
+
       if (lErr) throw lErr;
       if (oErr) throw oErr;
-      setLeads((leadsData ?? []) as Lead[]);
+
+      setLeads((leadsData    ?? []) as Lead[]);
       setOutreach((outreachData ?? []) as OutreachEntry[]);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load analytics");
@@ -119,11 +119,10 @@ export default function Analytics() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // ── Realtime ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const ch = supabase
       .channel("realtime:analytics")
-      .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "leads" },           fetchAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "outreach_history" }, fetchAll)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -139,21 +138,19 @@ export default function Analytics() {
   const totalRevenue = leads
     .filter((l) => l.status === "Closed Won")
     .reduce((s, l) => s + (l.deal_value ?? 0), 0);
-  const avgDeal      = closedWon > 0
-    ? Math.round(totalRevenue / closedWon)
-    : 0;
+  const avgDeal      = closedWon > 0 ? Math.round(totalRevenue / closedWon) : 0;
 
-  const contactRate  = total > 0 ? ((contacted / total) * 100).toFixed(1) : "0.0";
-  const replyRate    = contacted > 0 ? ((replied / contacted) * 100).toFixed(1) : "0.0";
-  const convRate     = total > 0 ? ((closedWon / total) * 100).toFixed(1) : "0.0";
+  const contactRate = total     > 0 ? ((contacted / total)     * 100).toFixed(1) : "0.0";
+  const replyRate   = contacted > 0 ? ((replied   / contacted) * 100).toFixed(1) : "0.0";
+  const convRate    = total     > 0 ? ((closedWon / total)     * 100).toFixed(1) : "0.0";
 
   const kpis = [
-    { label: "Total Leads",   value: total.toLocaleString(), icon: Users,         color: "text-primary"   },
-    { label: "Contact Rate",  value: `${contactRate}%`,      icon: Phone,         color: "text-cyan-400"  },
-    { label: "Reply Rate",    value: `${replyRate}%`,        icon: MessageSquare, color: "text-violet-400"},
-    { label: "Conversion",    value: `${convRate}%`,         icon: Target,        color: "text-success"   },
-    { label: "Avg Deal Size", value: formatRevenue(avgDeal), icon: IndianRupee,   color: "text-amber-400" },
-    { label: "Total Revenue", value: formatRevenue(totalRevenue), icon: TrendingUp, color: "text-primary" },
+    { label: "Total Leads",   value: total.toLocaleString(),    icon: Users,         color: "text-primary"    },
+    { label: "Contact Rate",  value: `${contactRate}%`,         icon: Phone,         color: "text-cyan-400"   },
+    { label: "Reply Rate",    value: `${replyRate}%`,           icon: MessageSquare, color: "text-violet-400" },
+    { label: "Conversion",    value: `${convRate}%`,            icon: Target,        color: "text-success"    },
+    { label: "Avg Deal Size", value: formatRevenue(avgDeal),    icon: IndianRupee,   color: "text-amber-400"  },
+    { label: "Total Revenue", value: formatRevenue(totalRevenue), icon: TrendingUp,  color: "text-primary"    },
   ];
 
   // ── Weekly Activity (last 7 days) ──────────────────────────────────────────
@@ -161,7 +158,7 @@ export default function Analytics() {
     const days: Record<string, { day: string; leads: number; outreach: number }> = {};
     const now = Date.now();
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(now - i * 86400000);
+      const d     = new Date(now - i * 86400000);
       const label = d.toLocaleDateString("en-IN", { weekday: "short" });
       const key   = d.toISOString().split("T")[0];
       days[key]   = { day: label, leads: 0, outreach: 0 };
@@ -332,8 +329,8 @@ export default function Analytics() {
                     <XAxis dataKey="day" tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="leads"    fill="hsl(72,100%,50%)"   radius={[4,4,0,0]} name="Leads"    />
-                    <Bar dataKey="outreach" fill="hsl(217,91%,60%)"   radius={[4,4,0,0]} name="Outreach" />
+                    <Bar dataKey="leads"    fill="hsl(72,100%,50%)"  radius={[4,4,0,0]} name="Leads"    />
+                    <Bar dataKey="outreach" fill="hsl(217,91%,60%)"  radius={[4,4,0,0]} name="Outreach" />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -364,8 +361,7 @@ export default function Analytics() {
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="month" tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false}
-                      tickFormatter={(v) => formatRevenue(v)} />
+                    <YAxis tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} tickFormatter={(v) => formatRevenue(v)} />
                     <Tooltip content={<CustomTooltip />} />
                     <Area type="monotone" dataKey="revenue" stroke="hsl(72,100%,50%)"  fill="url(#revenueGrad)" strokeWidth={2} name="Revenue" />
                     <Area type="monotone" dataKey="leads"   stroke="hsl(217,91%,60%)"  fill="url(#leadsGrad)"   strokeWidth={2} name="Leads"   />
@@ -420,8 +416,8 @@ export default function Analytics() {
               ) : (
                 <div className="space-y-2">
                   {funnelData.map((stage, i) => {
-                    const maxVal  = funnelData[0].value;
-                    const pct     = (stage.value / maxVal) * 100;
+                    const maxVal   = funnelData[0].value;
+                    const pct      = (stage.value / maxVal) * 100;
                     const convRate = i > 0
                       ? `${((stage.value / funnelData[i - 1].value) * 100).toFixed(0)}%`
                       : "100%";
@@ -454,7 +450,7 @@ export default function Analytics() {
             </motion.div>
           </div>
 
-          {/* Bottom Row — City Leaderboard + Outreach Modes */}
+          {/* Bottom Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
             {/* Top Cities */}

@@ -9,8 +9,20 @@ import {
 import { useLeads, deleteLead, updateLeadStatus, addLead } from "../hooks/useLeads";
 import type { Lead } from "../lib/supabase";
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+interface TagData {
+  id: string;
+  name: string;
+  color: string;
+}
+
+// Extend Lead to include tags (injected by useLeads hook)
+interface LeadWithTags extends Lead {
+  tags: TagData[];
+}
+
 // ── Score badge colors ─────────────────────────────────────────────────────────
-const scoreColors = {
+const scoreColors: Record<string, string> = {
   High:   "text-primary bg-primary/10 border-primary/30",
   Medium: "text-accent bg-accent/10 border-accent/30",
   Low:    "text-muted-foreground bg-muted border-border",
@@ -21,6 +33,18 @@ const STATUS_OPTIONS: Lead["status"][] = [
   "New Lead", "Contacted", "Replied", "Interested",
   "Proposal Sent", "Negotiation", "Closed Won", "Closed Lost",
 ];
+
+// ── Status colors ──────────────────────────────────────────────────────────────
+const STATUS_COLORS: Record<string, string> = {
+  "New Lead":      "text-slate-400",
+  "Contacted":     "text-cyan-400",
+  "Replied":       "text-blue-400",
+  "Interested":    "text-violet-400",
+  "Proposal Sent": "text-purple-400",
+  "Negotiation":   "text-amber-400",
+  "Closed Won":    "text-emerald-400",
+  "Closed Lost":   "text-red-400",
+};
 
 // ── Add Lead Modal ─────────────────────────────────────────────────────────────
 function AddLeadModal({ onClose, onSave }: {
@@ -41,6 +65,15 @@ function AddLeadModal({ onClose, onSave }: {
     onClose();
   };
 
+  const FIELDS = [
+    { key: "business_name", label: "Business Name *", placeholder: "e.g. Sharma Restaurant" },
+    { key: "category",      label: "Category",        placeholder: "e.g. Restaurant, Salon, Gym" },
+    { key: "city",          label: "City",            placeholder: "e.g. Mumbai" },
+    { key: "phone",         label: "Phone",           placeholder: "+91 98765 43210" },
+    { key: "email",         label: "Email",           placeholder: "info@business.com" },
+    { key: "website",       label: "Website",         placeholder: "business.com" },
+  ];
+
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -56,14 +89,7 @@ function AddLeadModal({ onClose, onSave }: {
       >
         <h2 className="text-lg font-heading font-bold text-foreground">Add New Lead</h2>
 
-        {[
-          { key: "business_name", label: "Business Name *", placeholder: "e.g. Sharma Restaurant" },
-          { key: "category",      label: "Category",        placeholder: "e.g. Restaurant, Salon, Gym" },
-          { key: "city",          label: "City",            placeholder: "e.g. Mumbai" },
-          { key: "phone",         label: "Phone",           placeholder: "+91 98765 43210" },
-          { key: "email",         label: "Email",           placeholder: "info@business.com" },
-          { key: "website",       label: "Website",         placeholder: "business.com" },
-        ].map(({ key, label, placeholder }) => (
+        {FIELDS.map(({ key, label, placeholder }) => (
           <div key={key}>
             <label className="text-xs font-stats text-muted-foreground uppercase tracking-widest mb-1 block">
               {label}
@@ -84,7 +110,7 @@ function AddLeadModal({ onClose, onSave }: {
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving || !form.business_name?.trim()}
-            className="flex-1 py-2 rounded-lg text-sm font-heading font-semibold text-primary-foreground disabled:opacity-50 transition-all"
+            className="flex-1 py-2 rounded-lg text-sm font-heading font-semibold text-primary-foreground disabled:opacity-50 transition-all hover:opacity-90"
             style={{ background: "var(--gradient-primary)" }}>
             {saving ? "Saving..." : "Add Lead"}
           </button>
@@ -97,7 +123,10 @@ function AddLeadModal({ onClose, onSave }: {
 // ── Main Leads Page ────────────────────────────────────────────────────────────
 export default function Leads() {
   const navigate = useNavigate();
-  const { leads, loading, error, refetch } = useLeads();
+
+  // ✅ Cast leads to LeadWithTags since useLeads injects tags
+  const { leads: rawLeads, loading, error, refetch } = useLeads();
+  const leads = rawLeads as LeadWithTags[];
 
   const [searchQuery,  setSearchQuery]  = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
@@ -106,13 +135,11 @@ export default function Leads() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
 
-  // ── Add lead — user_id is injected inside addLead() in useLeads.ts ──────────
   const handleAddLead = async (lead: Partial<Lead>) => {
     await addLead(lead);
     refetch();
   };
 
-  // ── Delete ──────────────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     await deleteLead(id);
@@ -120,7 +147,6 @@ export default function Leads() {
     refetch();
   };
 
-  // ── Status change ────────────────────────────────────────────────────────────
   const handleStatusChange = async (id: string, status: Lead["status"]) => {
     await updateLeadStatus(id, status);
     refetch();
@@ -129,11 +155,13 @@ export default function Leads() {
   // ── Filter + Sort ────────────────────────────────────────────────────────────
   const filtered = leads
     .filter((l) => {
-      const q          = searchQuery.toLowerCase();
+      const q           = searchQuery.toLowerCase();
       const matchSearch =
         l.business_name.toLowerCase().includes(q) ||
         (l.category ?? "").toLowerCase().includes(q) ||
-        (l.city     ?? "").toLowerCase().includes(q);
+        (l.city     ?? "").toLowerCase().includes(q) ||
+        // ✅ also search by tag name
+        (l.tags ?? []).some((t) => t.name.toLowerCase().includes(q));
       const matchStatus = filterStatus === "All" || l.status      === filterStatus;
       const matchScore  = filterScore  === "All" || l.score_label === filterScore;
       return matchSearch && matchStatus && matchScore;
@@ -187,7 +215,7 @@ export default function Leads() {
       <div className="flex flex-wrap gap-3">
         <div className="flex-1 min-w-[200px] relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input type="text" placeholder="Search by name, category, or city..."
+          <input type="text" placeholder="Search by name, category, city or tag..."
             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
           />
@@ -208,7 +236,10 @@ export default function Leads() {
         </select>
 
         <button
-          onClick={() => setSortBy(sortBy === "score" ? "created_at" : sortBy === "created_at" ? "rating" : "score")}
+          onClick={() => setSortBy(
+            sortBy === "score" ? "created_at" :
+            sortBy === "created_at" ? "rating" : "score"
+          )}
           className="px-4 py-2.5 rounded-lg glass border border-border text-muted-foreground hover:text-foreground flex items-center gap-2 text-sm transition-colors">
           <ArrowUpDown className="w-4 h-4" />
           Sort: {sortBy === "score" ? "Score" : sortBy === "rating" ? "Rating" : "Latest"}
@@ -268,6 +299,7 @@ export default function Leads() {
                       onClick={() => navigate(`/leads/${lead.id}`)}
                       className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer group">
 
+                      {/* Business */}
                       <td className="px-5 py-4">
                         <p className="text-sm font-medium text-foreground">{lead.business_name}</p>
                         <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
@@ -276,21 +308,39 @@ export default function Leads() {
                         </div>
                       </td>
 
+                      {/* Contact */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          {lead.phone   && <span title={lead.phone}>   <Phone  className="w-3.5 h-3.5 text-muted-foreground" /></span>}
-                          {lead.email   && <span title={lead.email}>   <Mail   className="w-3.5 h-3.5 text-muted-foreground" /></span>}
-                          {lead.website && <span title={lead.website}> <Globe  className="w-3.5 h-3.5 text-muted-foreground" /></span>}
+                          {lead.phone   && (
+                            <a href={`tel:${lead.phone}`} onClick={(e) => e.stopPropagation()}
+                              title={lead.phone} className="text-muted-foreground hover:text-primary transition-colors">
+                              <Phone className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                          {lead.email   && (
+                            <a href={`mailto:${lead.email}`} onClick={(e) => e.stopPropagation()}
+                              title={lead.email} className="text-muted-foreground hover:text-primary transition-colors">
+                              <Mail className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                          {lead.website && (
+                            <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                              target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                              title={lead.website} className="text-muted-foreground hover:text-primary transition-colors">
+                              <Globe className="w-3.5 h-3.5" />
+                            </a>
+                          )}
                           {!lead.phone && !lead.email && !lead.website && (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </div>
                       </td>
 
+                      {/* Rating */}
                       <td className="px-5 py-4">
                         {lead.rating > 0 ? (
                           <div className="flex items-center gap-1">
-                            <Star className="w-3.5 h-3.5 text-primary fill-primary" />
+                            <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                             <span className="text-sm font-stats text-foreground">{lead.rating}</span>
                             <span className="text-xs text-muted-foreground">({lead.review_count})</span>
                           </div>
@@ -299,33 +349,52 @@ export default function Leads() {
                         )}
                       </td>
 
+                      {/* Score */}
                       <td className="px-5 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-stats border ${scoreColors[lead.score_label]}`}>
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-stats border ${
+                          scoreColors[lead.score_label] ?? scoreColors.Low
+                        }`}>
                           {lead.score} · {lead.score_label}
                         </span>
                       </td>
 
+                      {/* Status */}
                       <td className="px-5 py-4">
-                        <select value={lead.status}
+                        <select
+                          value={lead.status}
                           onChange={(e) => handleStatusChange(lead.id, e.target.value as Lead["status"])}
                           onClick={(e) => e.stopPropagation()}
-                          className="text-xs font-stats bg-transparent border border-border rounded px-2 py-1 text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer">
+                          className={`text-xs font-stats bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer ${
+                            STATUS_COLORS[lead.status] ?? "text-muted-foreground"
+                          }`}>
                           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </td>
 
+                      {/* ✅ Tags — now correctly rendered from useLeads data */}
                       <td className="px-5 py-4">
-                        <div className="flex gap-1 flex-wrap max-w-[160px]">
-                          {(lead.tags ?? []).map((tag) => (
-                            <span key={tag.id}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-stats border"
-                              style={{ color: tag.color, backgroundColor: `${tag.color}18`, borderColor: `${tag.color}40` }}>
-                              <Tag className="w-2.5 h-2.5" />{tag.name}
-                            </span>
-                          ))}
+                        <div className="flex gap-1 flex-wrap max-w-[200px]">
+                          {(lead.tags ?? []).length > 0 ? (
+                            (lead.tags ?? []).map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-stats border"
+                                style={{
+                                  color:           tag.color,
+                                  backgroundColor: `${tag.color}18`,
+                                  borderColor:     `${tag.color}40`,
+                                }}
+                              >
+                                {tag.name}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground/40 font-stats">No tags</span>
+                          )}
                         </div>
                       </td>
 
+                      {/* Actions */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
@@ -334,7 +403,7 @@ export default function Leads() {
                             className="p-1 rounded text-muted-foreground hover:text-red-400 transition-colors">
                             {deletingId === lead.id
                               ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              : <Trash2 className="w-3.5 h-3.5" />}
+                              : <Trash2  className="w-3.5 h-3.5" />}
                           </button>
                           <ChevronRight className="w-4 h-4 text-muted-foreground" />
                         </div>

@@ -34,7 +34,22 @@ interface TaggedLead {
   };
 }
 
-// ── Preset colors to pick from ────────────────────────────────────────────────
+// ── Predefined tags every new user gets ───────────────────────────────────────
+const PREDEFINED_TAGS = [
+  { name: "🔥 Hot Lead",        color: "#EF4444" },
+  { name: "💰 High Budget",     color: "#F59E0B" },
+  { name: "⚡ Urgent",          color: "#F97316" },
+  { name: "🎯 Decision Maker",  color: "#8B5CF6" },
+  { name: "🌐 Needs Website",   color: "#06B6D4" },
+  { name: "📈 SEO Opportunity", color: "#10B981" },
+  { name: "🤝 Referral",        color: "#3B82F6" },
+  { name: "💬 Responded",       color: "#84CC16" },
+  { name: "🕐 Follow Up",       color: "#EC4899" },
+  { name: "⭐ VIP Client",      color: "#6366F1" },
+  { name: "🏪 Local Business",  color: "#14B8A6" },
+  { name: "❌ Not Interested",  color: "#94A3B8" },
+];
+
 const COLOR_PRESETS = [
   "#8B5CF6", "#06B6D4", "#10B981", "#F59E0B",
   "#EF4444", "#EC4899", "#3B82F6", "#84CC16",
@@ -52,53 +67,84 @@ const STATUS_COLORS: Record<string, string> = {
   "Closed Lost":   "text-red-400",
 };
 
-// ── Main Component ─────────────────────────────────────────────────────────────
 export default function Tags() {
   const navigate = useNavigate();
 
-  const [tags, setTags]               = useState<TagData[]>([]);
-  const [leadTags, setLeadTags]       = useState<TaggedLead[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState<string | null>(null);
+  const [tags,        setTags]        = useState<TagData[]>([]);
+  const [leadTags,    setLeadTags]    = useState<TaggedLead[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Create tag state
-  const [showCreate, setShowCreate]   = useState(false);
-  const [newTagName, setNewTagName]   = useState("");
+  const [showCreate,  setShowCreate]  = useState(false);
+  const [newTagName,  setNewTagName]  = useState("");
   const [newTagColor, setNewTagColor] = useState(COLOR_PRESETS[0]);
-  const [creating, setCreating]       = useState(false);
+  const [creating,    setCreating]    = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Edit tag state
-  const [editingTag, setEditingTag]   = useState<string | null>(null);
-  const [editName, setEditName]       = useState("");
-  const [editColor, setEditColor]     = useState("");
-  const [saving, setSaving]           = useState(false);
-
-  // Delete state
+  const [editingTag,  setEditingTag]  = useState<string | null>(null);
+  const [editName,    setEditName]    = useState("");
+  const [editColor,   setEditColor]   = useState("");
+  const [saving,      setSaving]      = useState(false);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
+
+  // ── Seed predefined tags for new users ────────────────────────────────────
+  async function seedPredefinedTags(userId: string) {
+    // Check if user already has tags
+    const { data: existing } = await supabase
+      .from("tags")
+      .select("id")
+      .eq("user_id", userId)
+      .limit(1);
+
+    // If they already have at least one tag, don't seed
+    if (existing && existing.length > 0) return;
+
+    // Insert all predefined tags for this user
+    await supabase.from("tags").insert(
+      PREDEFINED_TAGS.map((t) => ({
+        name:    t.name,
+        color:   t.color,
+        user_id: userId,
+      }))
+    );
+  }
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [
-        { data: tagsData, error: tagsErr },
-        { data: leadTagsData, error: ltErr },
-      ] = await Promise.all([
-        supabase.from("tags").select("*").order("name"),
-        supabase
-          .from("lead_tags")
-          .select("lead_id, tag_id, leads(id, business_name, city, category, status, score)")
-          .order("lead_id"),
-      ]);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      // ✅ Seed predefined tags if this is a new user
+      await seedPredefinedTags(user.id);
+
+      // ✅ Step 1: fetch only this user's tags
+      const { data: tagsData, error: tagsErr } = await supabase
+        .from("tags")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("name");
 
       if (tagsErr) throw tagsErr;
-      if (ltErr)   throw ltErr;
 
-      // Attach counts to tags
+      const userTagIds = (tagsData ?? []).map((t: TagData) => t.id);
+
+      // ✅ Step 2: fetch lead_tags filtered by user's tag IDs
+      const { data: leadTagsData, error: ltErr } = userTagIds.length > 0
+        ? await supabase
+            .from("lead_tags")
+            .select("lead_id, tag_id, leads(id, business_name, city, category, status, score)")
+            .in("tag_id", userTagIds)
+            .order("lead_id")
+        : { data: [], error: null };
+
+      if (ltErr) throw ltErr;
+
+      // ✅ Step 3: count leads per tag
       const countMap: Record<string, number> = {};
       (leadTagsData ?? []).forEach((lt: any) => {
         countMap[lt.tag_id] = (countMap[lt.tag_id] ?? 0) + 1;
@@ -120,11 +166,10 @@ export default function Tags() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Realtime
   useEffect(() => {
     const ch = supabase
       .channel("realtime:tags-page")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tags" }, fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tags" },      fetchAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "lead_tags" }, fetchAll)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -135,9 +180,14 @@ export default function Tags() {
     if (!newTagName.trim()) return;
     setCreating(true);
     setCreateError(null);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setCreating(false); return; }
+
     const { error: err } = await supabase
       .from("tags")
-      .insert({ name: newTagName.trim(), color: newTagColor });
+      .insert({ name: newTagName.trim(), color: newTagColor, user_id: user.id });
+
     if (err) {
       setCreateError(err.message);
     } else {
@@ -153,7 +203,12 @@ export default function Tags() {
   async function handleUpdate(id: string) {
     if (!editName.trim()) return;
     setSaving(true);
-    await supabase.from("tags").update({ name: editName.trim(), color: editColor }).eq("id", id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("tags")
+      .update({ name: editName.trim(), color: editColor })
+      .eq("id", id)
+      .eq("user_id", user?.id);
     setEditingTag(null);
     setSaving(false);
     fetchAll();
@@ -162,9 +217,9 @@ export default function Tags() {
   // ── Delete Tag ─────────────────────────────────────────────────────────────
   async function handleDelete(id: string) {
     setDeletingTag(id);
-    // lead_tags rows will cascade delete if FK is set, otherwise delete manually
+    const { data: { user } } = await supabase.auth.getUser();
     await supabase.from("lead_tags").delete().eq("tag_id", id);
-    await supabase.from("tags").delete().eq("id", id);
+    await supabase.from("tags").delete().eq("id", id).eq("user_id", user?.id);
     if (selectedTag === tags.find((t) => t.id === id)?.name) setSelectedTag(null);
     setDeletingTag(null);
     fetchAll();
@@ -186,7 +241,6 @@ export default function Tags() {
     return matchTag && matchSearch;
   });
 
-  // Deduplicate leads (a lead may have multiple tags, show once per lead)
   const seenLeads = new Set<string>();
   const uniqueLeadTags = filteredLeadTags.filter((lt) => {
     if (seenLeads.has(lt.lead_id)) return false;
@@ -194,7 +248,6 @@ export default function Tags() {
     return true;
   });
 
-  // For each lead, collect all its tags
   function getLeadTagNames(leadId: string): TagData[] {
     return leadTags
       .filter((lt) => lt.lead_id === leadId)
@@ -202,7 +255,6 @@ export default function Tags() {
       .filter(Boolean) as TagData[];
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
 
@@ -212,7 +264,7 @@ export default function Tags() {
         <div>
           <h1 className="text-3xl font-heading font-bold text-foreground">Lead Tags</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Organize & filter leads ·{" "}
+            Click any tag to filter leads ·{" "}
             <span className="font-stats text-primary">{tags.length} tags</span>
             {" · "}
             <span className="font-stats text-muted-foreground">{leadTags.length} assignments</span>
@@ -227,12 +279,10 @@ export default function Tags() {
             <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
             <span className="text-[10px] font-stats text-success">LIVE</span>
           </div>
-          <button
-            onClick={() => setShowCreate(!showCreate)}
+          <button onClick={() => setShowCreate(!showCreate)}
             className="px-4 py-2.5 rounded-lg font-heading font-semibold text-sm text-primary-foreground transition-all hover:opacity-90 flex items-center gap-2"
-            style={{ background: "var(--gradient-primary)" }}
-          >
-            <Plus className="w-4 h-4" /> New Tag
+            style={{ background: "var(--gradient-primary)" }}>
+            <Plus className="w-4 h-4" /> Custom Tag
           </button>
         </div>
       </motion.div>
@@ -255,12 +305,12 @@ export default function Tags() {
             className="overflow-hidden"
           >
             <div className="glass rounded-xl p-5 space-y-4 border border-primary/20">
-              <p className="text-sm font-heading font-semibold text-foreground">Create New Tag</p>
+              <p className="text-sm font-heading font-semibold text-foreground">Create Custom Tag</p>
               <div className="flex gap-3 flex-wrap">
                 <input
                   autoFocus
                   type="text"
-                  placeholder="Tag name e.g. High Budget, Urgent..."
+                  placeholder="Tag name e.g. VIP, Callback Needed..."
                   value={newTagName}
                   onChange={(e) => setNewTagName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreate()}
@@ -268,9 +318,7 @@ export default function Tags() {
                 />
                 <div className="flex gap-2 items-center flex-wrap">
                   {COLOR_PRESETS.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setNewTagColor(c)}
+                    <button key={c} onClick={() => setNewTagColor(c)}
                       className={`w-6 h-6 rounded-full border-2 transition-all ${newTagColor === c ? "border-white scale-110" : "border-transparent"}`}
                       style={{ backgroundColor: c }}
                     />
@@ -278,7 +326,6 @@ export default function Tags() {
                 </div>
               </div>
 
-              {/* Preview */}
               {newTagName && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground font-stats">Preview:</span>
@@ -291,22 +338,19 @@ export default function Tags() {
                 </div>
               )}
 
-              {createError && (
-                <p className="text-xs text-red-400">{createError}</p>
-              )}
+              {createError && <p className="text-xs text-red-400">{createError}</p>}
 
               <div className="flex gap-2">
                 <button onClick={() => { setShowCreate(false); setNewTagName(""); }}
                   className="flex-1 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">
                   Cancel
                 </button>
-                <button
-                  onClick={handleCreate}
-                  disabled={creating || !newTagName.trim()}
+                <button onClick={handleCreate} disabled={creating || !newTagName.trim()}
                   className="flex-1 py-2 rounded-lg text-sm font-heading font-semibold text-primary-foreground disabled:opacity-40 flex items-center justify-center gap-2 transition-all hover:opacity-90"
-                  style={{ background: "var(--gradient-primary)" }}
-                >
-                  {creating ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating...</> : <><Check className="w-3.5 h-3.5" /> Create Tag</>}
+                  style={{ background: "var(--gradient-primary)" }}>
+                  {creating
+                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating...</>
+                    : <><Check className="w-3.5 h-3.5" /> Create Tag</>}
                 </button>
               </div>
             </div>
@@ -317,7 +361,12 @@ export default function Tags() {
       {/* Tags Cloud */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-heading text-base text-foreground">All Tags</h3>
+          <div>
+            <h3 className="font-heading text-base text-foreground">Your Tags</h3>
+            <p className="text-[10px] font-stats text-muted-foreground mt-0.5">
+              Click a tag to filter leads · hover to edit or delete
+            </p>
+          </div>
           {selectedTag && (
             <button onClick={() => setSelectedTag(null)}
               className="text-xs font-stats text-primary hover:underline flex items-center gap-1">
@@ -328,28 +377,25 @@ export default function Tags() {
 
         {loading ? (
           <div className="flex gap-2 flex-wrap">
-            {[1,2,3,4,5,6].map((i) => (
-              <div key={i} className="h-8 w-28 rounded-lg bg-muted/50 animate-pulse" />
+            {[1,2,3,4,5,6,7,8].map((i) => (
+              <div key={i} className="h-9 w-32 rounded-full bg-muted/50 animate-pulse" />
             ))}
           </div>
         ) : tags.length === 0 ? (
           <div className="text-center py-8">
             <Tag className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-40" />
-            <p className="text-sm text-muted-foreground">No tags yet. Create your first one above.</p>
+            <p className="text-sm text-muted-foreground">Loading your tags...</p>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2.5">
             {tags.map((tag) => (
               <div key={tag.id} className="group relative">
                 {editingTag === tag.id ? (
-                  // ── Inline edit mode ──
                   <div className="flex items-center gap-2 p-2 rounded-xl border border-primary/30 bg-muted/80">
-                    <input
-                      autoFocus
-                      value={editName}
+                    <input autoFocus value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleUpdate(tag.id)}
-                      className="w-28 px-2 py-1 rounded-lg bg-muted border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      className="w-32 px-2 py-1 rounded-lg bg-muted border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                     <div className="flex gap-1">
                       {COLOR_PRESETS.slice(0, 6).map((c) => (
@@ -369,45 +415,57 @@ export default function Tags() {
                     </button>
                   </div>
                 ) : (
-                  // ── Normal tag chip ──
                   <button
                     onClick={() => setSelectedTag(selectedTag === tag.name ? null : tag.name)}
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-stats border transition-all hover:scale-105 ${
-                      selectedTag === tag.name ? "ring-2 scale-105" : ""
+                    className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-stats border transition-all hover:scale-105 active:scale-95 ${
+                      selectedTag === tag.name
+                        ? "ring-2 ring-offset-1 ring-offset-background scale-105 shadow-lg"
+                        : "hover:shadow-md"
                     }`}
                     style={{
-                      color:            tag.color,
-                      backgroundColor:  `${tag.color}18`,
-                      borderColor:      `${tag.color}40`,
-                      outlineColor:     tag.color,
+                      color:           tag.color,
+                      backgroundColor: selectedTag === tag.name
+                        ? `${tag.color}30`
+                        : `${tag.color}15`,
+                      borderColor:     `${tag.color}50`,
+                      
+                      boxShadow:       selectedTag === tag.name
+                        ? `0 0 12px ${tag.color}40`
+                        : undefined,
                     }}
                   >
-                    <Tag className="w-3 h-3" />
                     {tag.name}
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px]"
-                      style={{ backgroundColor: `${tag.color}30` }}>
-                      {tag.count}
-                    </span>
+                    {(tag.count ?? 0) > 0 && (
+                      <span
+                        className="font-stats font-bold text-[10px] px-1.5 py-0.5 rounded-full"
+                        style={{ backgroundColor: `${tag.color}30` }}
+                      >
+                        {tag.count}
+                      </span>
+                    )}
                   </button>
                 )}
 
-                {/* Edit / Delete hover buttons */}
+                {/* Edit / Delete on hover */}
                 {editingTag !== tag.id && (
-                  <div className="absolute -top-2 -right-2 hidden group-hover:flex gap-1 z-10">
+                  <div className="absolute -top-2 -right-1 hidden group-hover:flex gap-1 z-10">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setEditingTag(tag.id); setEditName(tag.name); setEditColor(tag.color); }}
-                      className="p-1 rounded-full bg-muted border border-border text-muted-foreground hover:text-primary shadow-sm"
-                    >
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingTag(tag.id);
+                        setEditName(tag.name);
+                        setEditColor(tag.color);
+                      }}
+                      className="p-1 rounded-full bg-background border border-border text-muted-foreground hover:text-primary shadow-md transition-colors">
                       <Edit3 className="w-2.5 h-2.5" />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(tag.id); }}
                       disabled={deletingTag === tag.id}
-                      className="p-1 rounded-full bg-muted border border-border text-muted-foreground hover:text-red-400 shadow-sm"
-                    >
+                      className="p-1 rounded-full bg-background border border-border text-muted-foreground hover:text-red-400 shadow-md transition-colors">
                       {deletingTag === tag.id
                         ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                        : <Trash2 className="w-2.5 h-2.5" />}
+                        : <Trash2  className="w-2.5 h-2.5" />}
                     </button>
                   </div>
                 )}
@@ -423,19 +481,16 @@ export default function Tags() {
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-primary" />
             <h3 className="font-heading text-base text-foreground">
-              {selectedTag ? `Leads tagged "${selectedTag}"` : "All Tagged Leads"}
+              {selectedTag
+                ? <span>Leads tagged <span style={{ color: tags.find(t => t.name === selectedTag)?.color }}>{selectedTag}</span></span>
+                : "All Tagged Leads"}
             </h3>
-            <span className="text-xs font-stats text-muted-foreground">
-              ({uniqueLeadTags.length})
-            </span>
+            <span className="text-xs font-stats text-muted-foreground">({uniqueLeadTags.length})</span>
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search leads..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+            <input type="text" placeholder="Search leads..."
+              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 pr-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary w-48"
             />
           </div>
@@ -446,13 +501,15 @@ export default function Tags() {
             {[1,2,3,4].map((i) => <div key={i} className="h-14 rounded-lg bg-muted/50 animate-pulse" />)}
           </div>
         ) : uniqueLeadTags.length === 0 ? (
-          <div className="text-center py-10">
-            <Users className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-40" />
+          <div className="text-center py-10 space-y-2">
+            <Users className="w-6 h-6 text-muted-foreground mx-auto opacity-40" />
             <p className="text-sm text-muted-foreground">
-              {selectedTag ? `No leads tagged "${selectedTag}".` : "No tagged leads yet."}
+              {selectedTag
+                ? `No leads tagged "${selectedTag}" yet.`
+                : "No tagged leads yet."}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Go to a Lead Detail page to add tags.
+            <p className="text-xs text-muted-foreground">
+              Open any lead and assign tags from the Lead Detail page.
             </p>
           </div>
         ) : (
@@ -462,7 +519,6 @@ export default function Tags() {
                 const lead = Array.isArray(lt.leads) ? lt.leads[0] : lt.leads;
                 if (!lead) return null;
                 const leadTagNames = getLeadTagNames(lt.lead_id);
-
                 return (
                   <motion.div
                     key={lt.lead_id}
@@ -491,23 +547,18 @@ export default function Tags() {
                         </p>
                       </div>
                     </div>
-
                     <div className="flex items-center gap-2 flex-wrap justify-end">
                       {lead.score > 0 && (
-                        <span className="text-[10px] font-stats text-primary">
-                          {lead.score}pts
-                        </span>
+                        <span className="text-[10px] font-stats text-primary">{lead.score}pts</span>
                       )}
                       {leadTagNames.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="text-[10px] font-stats px-2 py-0.5 rounded-full border"
+                        <span key={tag.id}
+                          className="text-[10px] font-stats px-2.5 py-1 rounded-full border"
                           style={{
                             color:           tag.color,
-                            backgroundColor: `${tag.color}18`,
+                            backgroundColor: `${tag.color}15`,
                             borderColor:     `${tag.color}40`,
-                          }}
-                        >
+                          }}>
                           {tag.name}
                         </span>
                       ))}

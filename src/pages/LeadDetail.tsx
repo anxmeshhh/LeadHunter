@@ -172,34 +172,40 @@ export default function LeadDetail() {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    try {
-      const [
-        { data: l  }, { data: n  }, { data: t  },
-        { data: o  }, { data: at }, { data: lt },
-      ] = await Promise.all([
-        supabase.from("leads").select("*").eq("id", id).single(),
-        supabase.from("lead_notes").select("*").eq("lead_id", id).order("created_at", { ascending: false }),
-        supabase.from("tasks").select("*").eq("lead_id", id).order("due_date"),
-        supabase.from("outreach_history").select("*").eq("lead_id", id).order("contacted_at", { ascending: false }),
-        supabase.from("tags").select("*").order("name"),
-        supabase.from("lead_tags").select("tag_id, tags(id,name,color)").eq("lead_id", id),
-      ]);
-      setLead(l as Lead);
-      setNotes((n ?? []) as Note[]);
-      setTasks((t ?? []) as Task[]);
-      setOutreach((o ?? []) as Outreach[]);
-      setAllTags((at ?? []) as TagData[]);
-      const tagList = (lt ?? []).map((r: any) => r.tags).filter(Boolean) as TagData[];
-      setLeadTags(tagList);
-      setDealInput(String(l?.deal_value ?? ""));
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  if (!id) return;
+  setLoading(true);
+  try {
+    // ✅ get current user to scope tags query
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const [
+      { data: l  }, { data: n  }, { data: t  },
+      { data: o  }, { data: at }, { data: lt },
+    ] = await Promise.all([
+      supabase.from("leads").select("*").eq("id", id).single(),
+      supabase.from("lead_notes").select("*").eq("lead_id", id).order("created_at", { ascending: false }),
+      supabase.from("tasks").select("*").eq("lead_id", id).order("due_date"),
+      supabase.from("outreach_history").select("*").eq("lead_id", id).order("contacted_at", { ascending: false }),
+      supabase.from("tags").select("*")
+        .eq("user_id", user?.id)             // ✅ only this user's tags
+        .order("name"),
+      supabase.from("lead_tags").select("tag_id, tags(id,name,color)").eq("lead_id", id),
+    ]);
+
+    setLead(l as Lead);
+    setNotes((n ?? []) as Note[]);
+    setTasks((t ?? []) as Task[]);
+    setOutreach((o ?? []) as Outreach[]);
+    setAllTags((at ?? []) as TagData[]);
+    const tagList = (lt ?? []).map((r: any) => r.tags).filter(Boolean) as TagData[];
+    setLeadTags(tagList);
+    setDealInput(String(l?.deal_value ?? ""));
+  } catch (e: any) {
+    setError(e.message);
+  } finally {
+    setLoading(false);
+  }
+}, [id]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
