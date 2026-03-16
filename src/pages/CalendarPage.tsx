@@ -23,7 +23,6 @@ interface Task {
   is_done: boolean;
   priority: "High" | "Medium" | "Low";
   created_at: string;
-  // joined
   leads?: { business_name: string; city: string; status: string; phone: string } | null;
 }
 
@@ -43,8 +42,11 @@ const PRIORITY_DOT: Record<string, string> = {
   High: "bg-red-400", Medium: "bg-primary", Low: "bg-muted-foreground",
 };
 
-const DAYS_OF_WEEK   = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH_NAMES    = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES  = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function formatDateKey(year: number, month: number, day: number) {
@@ -106,42 +108,51 @@ export default function CalendarPage() {
   const navigate = useNavigate();
   const today    = new Date();
 
-  const [currentYear, setCurrentYear]   = useState(today.getFullYear());
+  const [currentYear,  setCurrentYear]  = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey());
 
-  const [tasks, setTasks]               = useState<Task[]>([]);
-  const [leads, setLeads]               = useState<{ id: string; business_name: string }[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState<string | null>(null);
+  const [tasks,   setTasks]   = useState<Task[]>([]);
+  const [leads,   setLeads]   = useState<{ id: string; business_name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
 
-  // Add task form
-  const [showAdd, setShowAdd]           = useState(false);
-  const [newTask, setNewTask]           = useState({ title: "", lead_id: "", priority: "Medium", due_date: selectedDate });
-  const [saving, setSaving]             = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newTask, setNewTask] = useState({ title: "", lead_id: "", priority: "Medium", due_date: selectedDate });
+  const [saving,  setSaving]  = useState(false);
 
-  // AI briefing
-  const [briefing, setBriefing]         = useState("");
+  const [briefing,        setBriefing]        = useState("");
   const [loadingBriefing, setLoadingBriefing] = useState(false);
-  const [briefingDate, setBriefingDate] = useState("");
+  const [briefingDate,    setBriefingDate]    = useState("");
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
+  // ✅ FIX: scope both queries to current user
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [{ data: tasksData, error: tErr }, { data: leadsData, error: lErr }] = await Promise.all([
+      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      if (!user) throw new Error("Not authenticated");
+
+      const [
+        { data: tasksData, error: tErr },
+        { data: leadsData, error: lErr },
+      ] = await Promise.all([
         supabase
           .from("tasks")
           .select("*, leads(business_name, city, status, phone)")
+          .eq("user_id", user.id)              // ✅
           .order("due_date", { ascending: true }),
         supabase
           .from("leads")
           .select("id, business_name")
+          .eq("user_id", user.id)              // ✅
           .order("business_name"),
       ]);
+
       if (tErr) throw tErr;
       if (lErr) throw lErr;
+
       setTasks((tasksData ?? []) as Task[]);
       setLeads(leadsData ?? []);
     } catch (err: unknown) {
@@ -153,7 +164,6 @@ export default function CalendarPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Realtime
   useEffect(() => {
     const ch = supabase
       .channel("realtime:calendar")
@@ -162,50 +172,28 @@ export default function CalendarPage() {
     return () => { supabase.removeChannel(ch); };
   }, [fetchAll]);
 
-  // Sync add-form date when selectedDate changes
   useEffect(() => {
     setNewTask((p) => ({ ...p, due_date: selectedDate }));
   }, [selectedDate]);
 
-  // ── Calendar grid ──────────────────────────────────────────────────────────
-  const daysInMonth  = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const firstDay     = new Date(currentYear, currentMonth, 1).getDay();
-  const days: (number | null)[] = [
-    ...Array(firstDay).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-
-  const tasksByDate  = tasks.reduce<Record<string, Task[]>>((acc, t) => {
-    const key = t.due_date?.split("T")[0] ?? "";
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(t);
-    return acc;
-  }, {});
-
-  const today_key     = todayKey();
-  const selectedTasks = tasksByDate[selectedDate] ?? [];
-
-  // ── Stats ──────────────────────────────────────────────────────────────────
-  const todayTasks    = tasksByDate[today_key] ?? [];
-  const doneToday     = todayTasks.filter((t) => t.is_done).length;
-  const overdueCount  = Object.entries(tasksByDate)
-    .filter(([date]) => date < today_key)
-    .reduce((sum, [, ts]) => sum + ts.filter((t) => !t.is_done).length, 0);
-  const upcomingCount = Object.entries(tasksByDate)
-    .filter(([date]) => date > today_key)
-    .reduce((sum, [, ts]) => sum + ts.filter((t) => !t.is_done).length, 0);
-
   // ── Add Task ───────────────────────────────────────────────────────────────
+  // ✅ FIX: stamp user_id on insert
   async function handleAddTask() {
     if (!newTask.title.trim() || !newTask.due_date) return;
     setSaving(true);
+
+    const { data: { user } } = await supabase.auth.getUser(); // ✅
+    if (!user) { setSaving(false); return; }
+
     const { error: err } = await supabase.from("tasks").insert({
       title:    newTask.title.trim(),
       lead_id:  newTask.lead_id || null,
       priority: newTask.priority,
       due_date: newTask.due_date,
       is_done:  false,
+      user_id:  user.id,                       // ✅
     });
+
     if (!err) {
       setNewTask({ title: "", lead_id: "", priority: "Medium", due_date: selectedDate });
       setShowAdd(false);
@@ -215,16 +203,27 @@ export default function CalendarPage() {
   }
 
   // ── Toggle done ────────────────────────────────────────────────────────────
+  // ✅ FIX: scope update to current user
   async function handleToggle(task: Task) {
-    // Optimistic
     setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, is_done: !t.is_done } : t));
-    await supabase.from("tasks").update({ is_done: !task.is_done }).eq("id", task.id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("tasks")
+      .update({ is_done: !task.is_done })
+      .eq("id", task.id)
+      .eq("user_id", user?.id);               // ✅
   }
 
   // ── Delete ─────────────────────────────────────────────────────────────────
+  // ✅ FIX: scope delete to current user
   async function handleDelete(id: string) {
     setTasks((prev) => prev.filter((t) => t.id !== id));
-    await supabase.from("tasks").delete().eq("id", id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user?.id);               // ✅
   }
 
   // ── AI Briefing ────────────────────────────────────────────────────────────
@@ -247,6 +246,34 @@ export default function CalendarPage() {
     if (currentMonth === 11) { setCurrentMonth(0); setCurrentYear((y) => y + 1); }
     else setCurrentMonth((m) => m + 1);
   };
+
+  // ── Calendar grid ──────────────────────────────────────────────────────────
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const firstDay    = new Date(currentYear, currentMonth, 1).getDay();
+  const days: (number | null)[] = [
+    ...Array(firstDay).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  const tasksByDate = tasks.reduce<Record<string, Task[]>>((acc, t) => {
+    const key = t.due_date?.split("T")[0] ?? "";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(t);
+    return acc;
+  }, {});
+
+  const today_key     = todayKey();
+  const selectedTasks = tasksByDate[selectedDate] ?? [];
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  const todayTasks    = tasksByDate[today_key] ?? [];
+  const doneToday     = todayTasks.filter((t) => t.is_done).length;
+  const overdueCount  = Object.entries(tasksByDate)
+    .filter(([date]) => date < today_key)
+    .reduce((sum, [, ts]) => sum + ts.filter((t) => !t.is_done).length, 0);
+  const upcomingCount = Object.entries(tasksByDate)
+    .filter(([date]) => date > today_key)
+    .reduce((sum, [, ts]) => sum + ts.filter((t) => !t.is_done).length, 0);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -292,9 +319,9 @@ export default function CalendarPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { icon: CheckCircle2, label: "Done Today",  value: `${doneToday}/${todayTasks.length}`, color: "text-success"     },
-          { icon: Clock,        label: "Upcoming",    value: upcomingCount,                        color: "text-primary"     },
-          { icon: AlertTriangle,label: "Overdue",     value: overdueCount,                         color: overdueCount > 0 ? "text-red-400" : "text-muted-foreground" },
+          { icon: CheckCircle2,  label: "Done Today", value: `${doneToday}/${todayTasks.length}`, color: "text-success"   },
+          { icon: Clock,         label: "Upcoming",   value: upcomingCount,                        color: "text-primary"   },
+          { icon: AlertTriangle, label: "Overdue",    value: overdueCount,                         color: overdueCount > 0 ? "text-red-400" : "text-muted-foreground" },
         ].map((s, i) => (
           <motion.div key={s.label}
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
@@ -341,8 +368,7 @@ export default function CalendarPage() {
           >
             {loadingBriefing
               ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking...</>
-              : <><Sparkles className="w-3.5 h-3.5" /> {briefing && briefingDate === selectedDate ? "Refresh" : "Brief Me"}</>
-            }
+              : <><Sparkles className="w-3.5 h-3.5" /> {briefing && briefingDate === selectedDate ? "Refresh" : "Brief Me"}</>}
           </button>
         </div>
       </motion.div>
@@ -396,7 +422,6 @@ export default function CalendarPage() {
                   }`}
                 >
                   {day}
-                  {/* Dot indicators */}
                   {dayTasks.length > 0 && !isSelected && (
                     <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
                       <div className={`w-1.5 h-1.5 rounded-full ${
@@ -419,9 +444,9 @@ export default function CalendarPage() {
           {/* Legend */}
           <div className="flex gap-4 mt-4 pt-4 border-t border-border/30">
             {[
-              { color: "bg-primary",           label: "Open tasks" },
-              { color: "bg-success",            label: "All done"   },
-              { color: "bg-red-400",            label: "Overdue"    },
+              { color: "bg-primary", label: "Open tasks" },
+              { color: "bg-success", label: "All done"   },
+              { color: "bg-red-400", label: "Overdue"    },
             ].map((l) => (
               <div key={l.label} className="flex items-center gap-1.5">
                 <div className={`w-2 h-2 rounded-full ${l.color}`} />
@@ -474,7 +499,6 @@ export default function CalendarPage() {
                     onKeyDown={(e) => e.key === "Enter" && handleAddTask()}
                     className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   />
-                  {/* Lead selector */}
                   <select
                     value={newTask.lead_id}
                     onChange={(e) => setNewTask((p) => ({ ...p, lead_id: e.target.value }))}
@@ -513,7 +537,9 @@ export default function CalendarPage() {
                       className="flex-1 py-2 rounded-lg text-xs font-heading font-semibold text-primary-foreground disabled:opacity-40 flex items-center justify-center gap-1.5 transition-all hover:opacity-90"
                       style={{ background: "var(--gradient-primary)" }}
                     >
-                      {saving ? <><Loader2 className="w-3 h-3 animate-spin" /> Saving...</> : <><Calendar className="w-3 h-3" /> Add Task</>}
+                      {saving
+                        ? <><Loader2 className="w-3 h-3 animate-spin" /> Saving...</>
+                        : <><Calendar className="w-3 h-3" /> Add Task</>}
                     </button>
                   </div>
                 </div>
@@ -530,17 +556,13 @@ export default function CalendarPage() {
             <div className="flex-1 flex flex-col items-center justify-center py-10 gap-2">
               <Calendar className="w-7 h-7 text-muted-foreground opacity-30" />
               <p className="text-sm text-muted-foreground">No tasks for this day</p>
-              <button
-                onClick={() => setShowAdd(true)}
-                className="text-xs text-primary hover:underline"
-              >
+              <button onClick={() => setShowAdd(true)} className="text-xs text-primary hover:underline">
                 + Add a task
               </button>
             </div>
           ) : (
             <div className="space-y-2 flex-1 overflow-y-auto">
               <AnimatePresence>
-                {/* Sort: undone first, then by priority */}
                 {[...selectedTasks]
                   .sort((a, b) => {
                     if (a.is_done !== b.is_done) return a.is_done ? 1 : -1;
@@ -564,7 +586,6 @@ export default function CalendarPage() {
                         } ${task.is_done ? "opacity-50 bg-muted/20" : "bg-muted/30 hover:bg-muted/50"}`}
                       >
                         <div className="flex items-start gap-2">
-                          {/* Checkbox */}
                           <button
                             onClick={() => handleToggle(task)}
                             className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
@@ -579,19 +600,19 @@ export default function CalendarPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 mb-0.5">
                               <Icon className="w-3 h-3 text-primary shrink-0" />
-                              <p className={`text-sm font-medium leading-tight ${task.is_done ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                              <p className={`text-sm font-medium leading-tight ${
+                                task.is_done ? "line-through text-muted-foreground" : "text-foreground"
+                              }`}>
                                 {task.title}
                               </p>
                             </div>
 
-                            {/* Lead link */}
                             {lead && (
                               <button
                                 onClick={() => navigate(`/leads/${task.lead_id}`)}
                                 className="text-[10px] font-stats text-primary hover:underline"
                               >
-                                {lead.business_name}
-                                {lead.city ? ` · ${lead.city}` : ""}
+                                {lead.business_name}{lead.city ? ` · ${lead.city}` : ""}
                               </button>
                             )}
 
@@ -608,7 +629,6 @@ export default function CalendarPage() {
                             </div>
                           </div>
 
-                          {/* Delete */}
                           <button
                             onClick={() => handleDelete(task.id)}
                             className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-red-400 transition-all shrink-0"
