@@ -58,19 +58,18 @@ interface Lead {
 const STATUS_CONFIG: Record<ProposalStatus, {
   label: string; icon: any; color: string; dot: string; next: ProposalStatus;
 }> = {
-  Draft:    { label: "Draft",    icon: FileText,    color: "text-slate-400 bg-slate-500/10 border-slate-500/30",      dot: "bg-slate-400",   next: "Sent"     },
-  Sent:     { label: "Sent",     icon: Send,        color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30",          dot: "bg-cyan-400",    next: "Viewed"   },
-  Viewed:   { label: "Viewed",   icon: Eye,         color: "text-violet-400 bg-violet-500/10 border-violet-500/30",    dot: "bg-violet-400",  next: "Accepted" },
-  Accepted: { label: "Accepted", icon: CheckCircle2,color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30", dot: "bg-emerald-400", next: "Draft"    },
-  Rejected: { label: "Rejected", icon: XCircle,     color: "text-red-400 bg-red-500/10 border-red-500/30",             dot: "bg-red-400",     next: "Draft"    },
+  Draft:    { label: "Draft",    icon: FileText,     color: "text-slate-400 bg-slate-500/10 border-slate-500/30",      dot: "bg-slate-400",   next: "Sent"     },
+  Sent:     { label: "Sent",     icon: Send,         color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30",          dot: "bg-cyan-400",    next: "Viewed"   },
+  Viewed:   { label: "Viewed",   icon: Eye,          color: "text-violet-400 bg-violet-500/10 border-violet-500/30",    dot: "bg-violet-400",  next: "Accepted" },
+  Accepted: { label: "Accepted", icon: CheckCircle2, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30", dot: "bg-emerald-400", next: "Draft"    },
+  Rejected: { label: "Rejected", icon: XCircle,      color: "text-red-400 bg-red-500/10 border-red-500/30",             dot: "bg-red-400",     next: "Draft"    },
 };
 
 const ALL_STATUSES: ProposalStatus[] = ["Draft", "Sent", "Viewed", "Accepted", "Rejected"];
 
-// Lead pipeline integration rules
-const LEAD_STATUS_ON_CREATE = "Proposal Sent";
-const LEAD_STATUS_ON_ACCEPT = "Closed Won";
-const LEAD_STAGES_BEFORE_PROPOSAL = ["New Lead", "Contacted", "Replied", "Interested"];
+const LEAD_STATUS_ON_CREATE        = "Proposal Sent";
+const LEAD_STATUS_ON_ACCEPT        = "Closed Won";
+const LEAD_STAGES_BEFORE_PROPOSAL  = ["New Lead", "Contacted", "Replied", "Interested"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatAmount(n: number): string {
@@ -103,7 +102,7 @@ async function generateProposalAI(lead: Lead): Promise<Partial<Proposal>> {
       ],
       total_amount: 80000,
       timeline: "4–6 weeks",
-      scope_of_work: `Complete digital transformation for ${lead.business_name} in ${lead.city}. Includes a new website, SEO foundation, and WhatsApp lead capture.`,
+      scope_of_work: `Complete digital transformation for ${lead.business_name} in ${lead.city}.`,
       deliverables: ["Responsive 5-page website", "SEO audit report", "WhatsApp chat integration", "Admin training session", "30-day bug warranty"],
       ai_generated: true,
     };
@@ -144,7 +143,7 @@ Rules: Prices in INR numbers only (no ₹). Total ₹20K–₹3L range realistic
       }),
     });
     const data = await res.json();
-    const raw = data.choices?.[0]?.message?.content ?? "";
+    const raw  = data.choices?.[0]?.message?.content ?? "";
     const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
     const total = (parsed.services ?? []).reduce((s: number, sv: ServiceLine) => s + (sv.price ?? 0), 0);
@@ -163,7 +162,7 @@ Rules: Prices in INR numbers only (no ₹). Total ₹20K–₹3L range realistic
   }
 }
 
-// ─── Reusable Lead Selector ───────────────────────────────────────────────────
+// ─── Lead Selector ────────────────────────────────────────────────────────────
 function LeadSelector({
   leads, selectedId, onChange, readOnly = false,
 }: {
@@ -215,7 +214,9 @@ function LeadSelector({
               <motion.div
                 initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
                 className="rounded-xl border border-border bg-muted/95 backdrop-blur overflow-hidden shadow-xl max-h-48 overflow-y-auto">
-                {filtered.length === 0 && <p className="px-3 py-3 text-xs text-muted-foreground text-center">No leads found</p>}
+                {filtered.length === 0 && (
+                  <p className="px-3 py-3 text-xs text-muted-foreground text-center">No leads found</p>
+                )}
                 {filtered.map((l) => (
                   <button key={l.id}
                     onClick={() => { onChange(l.id); setSearch(""); setOpen(false); }}
@@ -236,7 +237,7 @@ function LeadSelector({
   );
 }
 
-// ─── Proposal Form Modal ──────────────────────────────────────────────────────
+// ─── Proposal Modal ───────────────────────────────────────────────────────────
 function ProposalModal({
   proposal, leads, onClose, onSaved,
 }: {
@@ -306,35 +307,59 @@ function ProposalModal({
       setSaveError("Please select a lead and enter a title.");
       return;
     }
-    setSaving(true); setSaveError(null);
-    const payload = {
-      lead_id:       form.lead_id,
-      title:         form.title!.trim(),
-      services:      form.services      ?? [],
-      total_amount:  form.total_amount  ?? 0,
-      timeline:      form.timeline      ?? "",
-      scope_of_work: form.scope_of_work ?? "",
-      deliverables:  form.deliverables  ?? [],
-      status:        form.status        ?? "Draft",
-      ai_generated:  form.ai_generated  ?? false,
-    };
+    setSaving(true);
+    setSaveError(null);
+
     try {
+      // ✅ FIX: get current user for user_id scoping
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const payload = {
+        lead_id:       form.lead_id,
+        title:         form.title!.trim(),
+        services:      form.services      ?? [],
+        total_amount:  form.total_amount  ?? 0,
+        timeline:      form.timeline      ?? "",
+        scope_of_work: form.scope_of_work ?? "",
+        deliverables:  form.deliverables  ?? [],
+        status:        form.status        ?? "Draft",
+        ai_generated:  form.ai_generated  ?? false,
+        user_id:       user.id,                        // ✅ always stamp user_id
+      };
+
       if (isEdit) {
-        const { error } = await supabase.from("proposals").update(payload).eq("id", proposal!.id!);
+        const { error } = await supabase
+          .from("proposals")
+          .update(payload)
+          .eq("id", proposal!.id!)
+          .eq("user_id", user.id);                     // ✅ scoped update
         if (error) throw error;
       } else {
         const { error } = await supabase.from("proposals").insert(payload);
         if (error) throw error;
-        // Advance lead status to Proposal Sent (only if still in early stages)
-        await supabase.from("leads").update({ status: LEAD_STATUS_ON_CREATE })
-          .eq("id", form.lead_id).in("status", LEAD_STAGES_BEFORE_PROPOSAL);
+        // Advance lead to Proposal Sent (only if still in early stages)
+        await supabase
+          .from("leads")
+          .update({ status: LEAD_STATUS_ON_CREATE })
+          .eq("id", form.lead_id)
+          .eq("user_id", user.id)                      // ✅ scoped lead update
+          .in("status", LEAD_STAGES_BEFORE_PROPOSAL);
       }
+
       // If accepted immediately, close the deal
       if (form.status === "Accepted") {
-        await supabase.from("leads").update({ status: LEAD_STATUS_ON_ACCEPT })
-          .eq("id", form.lead_id).neq("status", LEAD_STATUS_ON_ACCEPT);
+        const { data: { user: u } } = await supabase.auth.getUser();
+        await supabase
+          .from("leads")
+          .update({ status: LEAD_STATUS_ON_ACCEPT })
+          .eq("id", form.lead_id)
+          .eq("user_id", u?.id)                        // ✅ scoped
+          .neq("status", LEAD_STATUS_ON_ACCEPT);
       }
-      onSaved(); onClose();
+
+      onSaved();
+      onClose();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "Save failed. Check your connection.");
     } finally {
@@ -377,7 +402,7 @@ function ProposalModal({
           </button>
         </div>
 
-        {/* Scrollable body */}
+        {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5
           [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:transparent
           [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border">
@@ -506,7 +531,7 @@ function ProposalModal({
             </div>
           </div>
 
-          {/* Pipeline note */}
+          {/* Pipeline sync note */}
           {!isEdit && form.lead_id && (
             <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-muted-foreground">
               <span className="text-primary font-stats font-medium">Pipeline sync: </span>
@@ -514,7 +539,8 @@ function ProposalModal({
               <span className="text-foreground">{selectedLead?.business_name}</span> to{" "}
               <span className="text-primary font-stats">Proposal Sent</span> in the pipeline.
               {form.status === "Accepted" && (
-                <> Marking as Accepted will close the deal as <span className="text-emerald-400 font-stats">Closed Won</span>.</>
+                <> Marking as Accepted will close the deal as{" "}
+                <span className="text-emerald-400 font-stats">Closed Won</span>.</>
               )}
             </div>
           )}
@@ -549,30 +575,35 @@ function ProposalModal({
 export default function Proposals() {
   const navigate = useNavigate();
 
-  const [proposals, setProposals]               = useState<Proposal[]>([]);
-  const [leads, setLeads]                       = useState<Lead[]>([]);
-  const [loading, setLoading]                   = useState(true);
-  const [error, setError]                       = useState<string | null>(null);
-  const [showModal, setShowModal]               = useState(false);
-  const [editTarget, setEditTarget]             = useState<Partial<Proposal> | undefined>();
-  const [deletingId, setDeletingId]             = useState<string | null>(null);
-  const [updatingId, setUpdatingId]             = useState<string | null>(null);
-  const [filterStatus, setFilterStatus]         = useState<ProposalStatus | "All">("All");
-  const [searchQuery, setSearchQuery]           = useState("");
+  const [proposals, setProposals]     = useState<Proposal[]>([]);
+  const [leads, setLeads]             = useState<Lead[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
+  const [showModal, setShowModal]     = useState(false);
+  const [editTarget, setEditTarget]   = useState<Partial<Proposal> | undefined>();
+  const [deletingId, setDeletingId]   = useState<string | null>(null);
+  const [updatingId, setUpdatingId]   = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<ProposalStatus | "All">("All");
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // ── Fetch ──────────────────────────────────────────────────────────────────
+  // ✅ FIX: fetch only current user's proposals and leads
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const [{ data: pData, error: pErr }, { data: lData, error: lErr }] = await Promise.all([
         supabase
           .from("proposals")
           .select("*, leads(business_name, city, category, status)")
+          .eq("user_id", user.id)                      // ✅ user_id filter
           .order("created_at", { ascending: false }),
         supabase
           .from("leads")
           .select("id, business_name, city, category, website, ai_opportunities, ai_pitch, score, status")
+          .eq("user_id", user.id)                      // ✅ user_id filter
           .order("score", { ascending: false }),
       ]);
       if (pErr) throw pErr;
@@ -582,8 +613,8 @@ export default function Proposals() {
         const lead = Array.isArray(p.leads) ? p.leads[0] : p.leads;
         return {
           ...p,
-          services:      p.services      ?? [],
-          deliverables:  p.deliverables  ?? [],
+          services:      p.services     ?? [],
+          deliverables:  p.deliverables ?? [],
           lead_name:     lead?.business_name,
           lead_city:     lead?.city,
           lead_category: lead?.category,
@@ -598,7 +629,6 @@ export default function Proposals() {
     }
   }, []);
 
-  // ── Real-time ──────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchAll();
     const ch = supabase
@@ -609,49 +639,65 @@ export default function Proposals() {
     return () => { supabase.removeChannel(ch); };
   }, [fetchAll]);
 
-  // ── Advance status + sync lead ─────────────────────────────────────────────
+  // ✅ FIX: scope status advance to current user
   async function handleStatusAdvance(proposal: Proposal) {
     const next = STATUS_CONFIG[proposal.status]?.next ?? "Draft";
     setUpdatingId(proposal.id);
-
-    // Optimistic
     setProposals((prev) => prev.map((p) => p.id === proposal.id ? { ...p, status: next } : p));
-    await supabase.from("proposals").update({ status: next }).eq("id", proposal.id);
 
-    // Sync lead pipeline
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("proposals")
+      .update({ status: next })
+      .eq("id", proposal.id)
+      .eq("user_id", user?.id);                        // ✅ scoped
+
     if (next === "Sent") {
       await supabase.from("leads").update({ status: LEAD_STATUS_ON_CREATE })
-        .eq("id", proposal.lead_id).in("status", LEAD_STAGES_BEFORE_PROPOSAL);
+        .eq("id", proposal.lead_id).eq("user_id", user?.id)
+        .in("status", LEAD_STAGES_BEFORE_PROPOSAL);
     }
     if (next === "Accepted") {
       await supabase.from("leads").update({ status: LEAD_STATUS_ON_ACCEPT })
-        .eq("id", proposal.lead_id).neq("status", LEAD_STATUS_ON_ACCEPT);
+        .eq("id", proposal.lead_id).eq("user_id", user?.id)
+        .neq("status", LEAD_STATUS_ON_ACCEPT);
     }
-
     setUpdatingId(null);
   }
 
-  // ── Set status directly (from dropdown on card) ────────────────────────────
+  // ✅ FIX: scope direct status set to current user
   async function handleSetStatus(proposal: Proposal, status: ProposalStatus) {
     setUpdatingId(proposal.id);
     setProposals((prev) => prev.map((p) => p.id === proposal.id ? { ...p, status } : p));
-    await supabase.from("proposals").update({ status }).eq("id", proposal.id);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("proposals")
+      .update({ status })
+      .eq("id", proposal.id)
+      .eq("user_id", user?.id);                        // ✅ scoped
+
     if (status === "Accepted") {
       await supabase.from("leads").update({ status: LEAD_STATUS_ON_ACCEPT })
-        .eq("id", proposal.lead_id).neq("status", LEAD_STATUS_ON_ACCEPT);
+        .eq("id", proposal.lead_id).eq("user_id", user?.id)
+        .neq("status", LEAD_STATUS_ON_ACCEPT);
     }
     setUpdatingId(null);
   }
 
-  // ── Delete ─────────────────────────────────────────────────────────────────
+  // ✅ FIX: scope delete to current user
   async function handleDelete(id: string) {
     setDeletingId(id);
     setProposals((prev) => prev.filter((p) => p.id !== id));
-    await supabase.from("proposals").delete().eq("id", id);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase
+      .from("proposals")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user?.id);                        // ✅ scoped
     setDeletingId(null);
   }
 
-  // ── Copy to clipboard ──────────────────────────────────────────────────────
   async function handleCopy(p: Proposal) {
     const lines = [
       `PROPOSAL: ${p.title}`,
@@ -676,7 +722,6 @@ export default function Proposals() {
   const totalValue = proposals.filter((p) => p.status !== "Rejected").reduce((s, p) => s + (p.total_amount || 0), 0);
   const winRate    = total > 0 ? Math.round((accepted / total) * 100) : 0;
 
-  // ── Filter ─────────────────────────────────────────────────────────────────
   const filtered = proposals.filter((p) => {
     const q = searchQuery.toLowerCase();
     const matchQ =
@@ -687,7 +732,6 @@ export default function Proposals() {
     return matchQ && (filterStatus === "All" || p.status === filterStatus);
   });
 
-  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
 
@@ -730,10 +774,10 @@ export default function Proposals() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Proposals",   value: loading ? "—" : total,               icon: FileText,    color: "text-foreground"  },
-          { label: "Accepted",           value: loading ? "—" : accepted,            icon: CheckCircle2,color: "text-emerald-400" },
-          { label: "Awaiting Decision",  value: loading ? "—" : pending,             icon: Clock,       color: "text-amber-400"   },
-          { label: "Pipeline Value",     value: loading ? "—" : formatAmount(totalValue), icon: IndianRupee, color: "text-primary" },
+          { label: "Total Proposals",  value: loading ? "—" : total,                icon: FileText,     color: "text-foreground"  },
+          { label: "Accepted",          value: loading ? "—" : accepted,             icon: CheckCircle2, color: "text-emerald-400" },
+          { label: "Awaiting Decision", value: loading ? "—" : pending,              icon: Clock,        color: "text-amber-400"   },
+          { label: "Pipeline Value",    value: loading ? "—" : formatAmount(totalValue), icon: IndianRupee, color: "text-primary"  },
         ].map((s, i) => (
           <motion.div key={s.label}
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
@@ -786,7 +830,7 @@ export default function Proposals() {
         </div>
         <div className="flex gap-1.5 flex-wrap">
           {(["All", ...ALL_STATUSES] as (ProposalStatus | "All")[]).map((s) => {
-            const cfg = s !== "All" ? STATUS_CONFIG[s] : null;
+            const cfg   = s !== "All" ? STATUS_CONFIG[s] : null;
             const count = s !== "All" ? proposals.filter((p) => p.status === s).length : proposals.length;
             return (
               <button key={s} onClick={() => setFilterStatus(s)}
@@ -806,14 +850,14 @@ export default function Proposals() {
         </div>
       </div>
 
-      {/* Loading */}
+      {/* Loading skeletons */}
       {loading && (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => <div key={i} className="h-40 rounded-xl bg-muted/50 animate-pulse" />)}
         </div>
       )}
 
-      {/* Empty */}
+      {/* Empty state */}
       {!loading && filtered.length === 0 && (
         <div className="glass rounded-xl p-16 text-center space-y-3">
           <FileText className="w-8 h-8 text-muted-foreground/30 mx-auto" />
@@ -830,14 +874,14 @@ export default function Proposals() {
         </div>
       )}
 
-      {/* Proposal cards */}
+      {/* Cards */}
       {!loading && filtered.length > 0 && (
         <div className="space-y-3">
           <AnimatePresence>
             {filtered.map((proposal, i) => {
-              const st      = STATUS_CONFIG[proposal.status] ?? STATUS_CONFIG["Draft"];
-              const StIcon  = st.icon;
-              const busy    = updatingId === proposal.id;
+              const st     = STATUS_CONFIG[proposal.status] ?? STATUS_CONFIG["Draft"];
+              const StIcon = st.icon;
+              const busy   = updatingId === proposal.id;
 
               return (
                 <motion.div key={proposal.id} layout
@@ -857,8 +901,6 @@ export default function Proposals() {
                             <Sparkles className="w-2.5 h-2.5" /> AI
                           </span>
                         )}
-
-                        {/* Status badge — click to advance through cycle */}
                         <button disabled={busy} onClick={() => handleStatusAdvance(proposal)}
                           title={`Click to advance → ${st.next}`}
                           className={`inline-flex items-center gap-1.5 text-[10px] font-stats px-2.5 py-1 rounded-full border transition-all hover:opacity-80 shrink-0 disabled:opacity-50 ${st.color}`}>
@@ -866,8 +908,6 @@ export default function Proposals() {
                           {st.label}
                           {!busy && <span className="opacity-30">→ {st.next}</span>}
                         </button>
-
-                        {/* Quick status picker */}
                         <select
                           value={proposal.status}
                           onChange={(e) => handleSetStatus(proposal, e.target.value as ProposalStatus)}
@@ -876,8 +916,6 @@ export default function Proposals() {
                           {ALL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
-
-                      {/* Lead link */}
                       <button onClick={() => navigate(`/leads/${proposal.lead_id}`)}
                         className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
                         {proposal.lead_name}
@@ -886,8 +924,6 @@ export default function Proposals() {
                         <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </button>
                     </div>
-
-                    {/* Value + timeline */}
                     <div className="text-right shrink-0">
                       <p className="font-stats text-xl font-bold text-primary">{formatAmount(proposal.total_amount)}</p>
                       {proposal.timeline && (
@@ -936,7 +972,6 @@ export default function Proposals() {
                       Created {daysAgo(proposal.created_at)}
                       {proposal.updated_at !== proposal.created_at && <> · updated {daysAgo(proposal.updated_at)}</>}
                     </span>
-
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button title="Copy proposal text" onClick={() => handleCopy(proposal)}
                         className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors">
