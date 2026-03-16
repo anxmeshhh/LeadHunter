@@ -630,14 +630,16 @@ export default function Proposals() {
   }, []);
 
   useEffect(() => {
-    fetchAll();
-    const ch = supabase
-      .channel("realtime:proposals-page")
-      .on("postgres_changes", { event: "*", schema: "public", table: "proposals" }, fetchAll)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "leads" }, fetchAll)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [fetchAll]);
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session) fetchAll();
+  });
+
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (_, session) => { if (session) fetchAll(); }
+  );
+
+  return () => subscription.unsubscribe();
+}, [fetchAll]);
 
   // ✅ FIX: scope status advance to current user
   async function handleStatusAdvance(proposal: Proposal) {
