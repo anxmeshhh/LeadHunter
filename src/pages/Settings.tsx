@@ -35,7 +35,6 @@ interface ProfileData {
   pitch_bio:  string;
 }
 
-// ── Tabs ───────────────────────────────────────────────────────────────────────
 const TABS: { id: SettingsTab; label: string; icon: any }[] = [
   { id: "profile",       label: "Profile",         icon: User     },
   { id: "targets",       label: "Daily Targets",   icon: Target   },
@@ -71,9 +70,13 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   return (
     <button
       onClick={() => onChange(!on)}
-      className={`w-10 h-6 rounded-full relative transition-colors ${on ? "bg-primary" : "bg-muted border border-border"}`}
+      className={`w-10 h-6 rounded-full relative transition-colors ${
+        on ? "bg-primary" : "bg-muted border border-border"
+      }`}
     >
-      <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${on ? "left-5" : "left-1"}`} />
+      <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
+        on ? "left-5" : "left-1"
+      }`} />
     </button>
   );
 }
@@ -88,7 +91,6 @@ function DailyGoalWidget() {
 
   useEffect(() => {
     (async () => {
-      // ✅ get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
@@ -102,17 +104,17 @@ function DailyGoalWidget() {
         { data: newLeadRows },
       ] = await Promise.all([
         supabase.from("daily_targets").select("*")
-          .eq("user_id", user.id)                    // ✅
-          .limit(1).maybeSingle(),
+          .eq("user_id", user.id)
+          .maybeSingle(),
         supabase.from("outreach_history").select("id")
-          .eq("user_id", user.id)                    // ✅
+          .eq("user_id", user.id)
           .gte("contacted_at", todayISO),
         supabase.from("leads").select("id")
-          .eq("user_id", user.id)                    // ✅
+          .eq("user_id", user.id)
           .gte("created_at", todayISO),
       ]);
 
-      setTarget(targetRow?.daily_target ?? targetRow?.daily_contact_target ?? 10);
+      setTarget(targetRow?.daily_contact_target ?? targetRow?.daily_target ?? 10);
       setStreak(targetRow?.streak ?? 0);
       setContacted((outreachRows ?? []).length);
       setNewLeads((newLeadRows ?? []).length);
@@ -160,14 +162,15 @@ function DailyGoalWidget() {
           : `${target - contacted} more contact${target - contacted !== 1 ? "s" : ""} to hit target`}
       </p>
       <div className="grid grid-cols-2 gap-2 pt-1">
-        <div className="rounded-lg bg-muted/40 px-2.5 py-2 text-center">
-          <p className="font-stats text-sm font-bold text-foreground">{contacted}</p>
-          <p className="text-[9px] font-stats text-muted-foreground uppercase tracking-widest">Contacted</p>
-        </div>
-        <div className="rounded-lg bg-muted/40 px-2.5 py-2 text-center">
-          <p className="font-stats text-sm font-bold text-foreground">{newLeads}</p>
-          <p className="text-[9px] font-stats text-muted-foreground uppercase tracking-widest">New Leads</p>
-        </div>
+        {[
+          { label: "Contacted", value: contacted },
+          { label: "New Leads", value: newLeads  },
+        ].map((s) => (
+          <div key={s.label} className="rounded-lg bg-muted/40 px-2.5 py-2 text-center">
+            <p className="font-stats text-sm font-bold text-foreground">{s.value}</p>
+            <p className="text-[9px] font-stats text-muted-foreground uppercase tracking-widest">{s.label}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -191,7 +194,6 @@ export default function Settings() {
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Sidebar nav */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass rounded-xl p-3 h-fit">
           <nav className="space-y-1">
             {TABS.map((tab) => (
@@ -209,7 +211,6 @@ export default function Settings() {
           <DailyGoalWidget />
         </motion.div>
 
-        {/* Content panel */}
         <div className="lg:col-span-3">
           {activeTab === "profile"       && <ProfileSettings      showToast={showToast} />}
           {activeTab === "targets"       && <TargetSettings       showToast={showToast} />}
@@ -237,7 +238,6 @@ function ProfileSettings({ showToast }: { showToast: (m: string, t?: "success" |
 
   useEffect(() => {
     (async () => {
-      // ✅ pre-fill email from auth user
       const { data: { user } } = await supabase.auth.getUser();
       const saved = localStorage.getItem(`crm_profile_${user?.id ?? "local"}`);
       if (saved) {
@@ -251,8 +251,7 @@ function ProfileSettings({ showToast }: { showToast: (m: string, t?: "success" |
 
   async function handleSave() {
     setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser(); // ✅
-    // Scope localStorage key to user so different users don't share profile
+    const { data: { user } } = await supabase.auth.getUser();
     localStorage.setItem(`crm_profile_${user?.id ?? "local"}`, JSON.stringify(form));
     await new Promise((r) => setTimeout(r, 400));
     setSaving(false);
@@ -328,54 +327,84 @@ function TargetSettings({ showToast }: { showToast: (m: string, t?: "success" | 
   const [rowId,   setRowId]   = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      // ✅ scope to current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-
-      const { data } = await supabase
-        .from("daily_targets")
-        .select("*")
-        .eq("user_id", user.id)                      // ✅
-        .limit(1)
-        .maybeSingle();
-
-      if (data) {
-        setForm({
-          daily_contact_target:   data.daily_contact_target   ?? 10,
-          weekly_lead_target:     data.weekly_lead_target     ?? 50,
-          monthly_revenue_target: data.monthly_revenue_target ?? 500000,
-          followup_reminder_days: data.followup_reminder_days ?? 3,
-          focus_mode:             data.focus_mode             ?? false,
-        });
-        setRowId(data.id);
-      }
-      setLoading(false);
-    })();
-  }, []);
-
-  async function handleSave() {
-    setSaving(true);
-    // ✅ get user for scoping
+  (async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
+    if (!user) { setLoading(false); return; }
+
+    // ✅ fetch the single row for this user
+    const { data, error } = await supabase
+      .from("daily_targets")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Fetch targets error:", error);
+      setLoading(false);
+      return;
+    }
+
+    if (data) {
+      setForm({
+        daily_contact_target:   data.daily_contact_target   ?? 10,
+        weekly_lead_target:     data.weekly_lead_target     ?? 50,
+        monthly_revenue_target: data.monthly_revenue_target ?? 500000,
+        followup_reminder_days: data.followup_reminder_days ?? 3,
+        focus_mode:             data.focus_mode             ?? false,
+      });
+      setRowId(data.id);               // ✅ always set rowId when row found
+    }
+    // if data is null — no row yet, rowId stays null, handleSave will INSERT
+    setLoading(false);
+  })();
+}, []);
+
+  // ✅ KEY FIX: use UPSERT with onConflict: "user_id"
+  // This means: one row per user, always. No stale rowId issues, no date constraint conflicts.
+  async function handleSave() {
+  setSaving(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Not authenticated");
+
+    const payload = {
+      user_id:                user.id,
+      daily_contact_target:   form.daily_contact_target,
+      weekly_lead_target:     form.weekly_lead_target,
+      monthly_revenue_target: form.monthly_revenue_target,
+      followup_reminder_days: form.followup_reminder_days,
+      focus_mode:             form.focus_mode,
+    };
 
     if (rowId) {
-      await supabase.from("daily_targets")
-        .update(form)
-        .eq("id", rowId)
-        .eq("user_id", user.id);                     // ✅
-    } else {
-      const { data } = await supabase
+      // ✅ Row exists — just update it
+      const { error } = await supabase
         .from("daily_targets")
-        .insert({ ...form, user_id: user.id })        // ✅
+        .update(payload)
+        .eq("id", rowId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+    } else {
+      // ✅ No row yet — insert fresh
+      const { data, error } = await supabase
+        .from("daily_targets")
+        .insert(payload)
         .select()
         .single();
+
+      if (error) throw error;
       if (data) setRowId(data.id);
     }
-    setSaving(false);
+
     showToast("Targets saved!");
+  } catch (err: unknown) {
+    console.error("Save failed:", err);
+    showToast(err instanceof Error ? err.message : "Save failed", "error");
+  } finally {
+    setSaving(false);
   }
+}
 
   const FIELDS = [
     { key: "daily_contact_target"   as keyof DailyTarget, label: "Daily Lead Contact Target",   desc: "Leads to contact per day"   },
@@ -484,11 +513,11 @@ function IntegrationSettings() {
   const hasSupabase = !!import.meta.env.VITE_SUPABASE_URL;
 
   const INTEGRATIONS = [
-    { name: "Supabase Database",      desc: "Live data storage & realtime sync",     icon: Database, connected: hasSupabase, status: hasSupabase ? "Connected" : "Not configured",               key: "VITE_SUPABASE_URL + ANON_KEY" },
-    { name: "RapidAPI · Google Places",desc: "Lead discovery & business search",     icon: Globe,    connected: hasRapidAPI, status: hasRapidAPI ? "Connected" : "Add VITE_RAPIDAPI_KEY to .env", key: "VITE_RAPIDAPI_KEY"            },
-    { name: "Groq · Llama 3.3 70B",   desc: "AI pitches, proposals & briefings",    icon: Zap,      connected: hasGroq,     status: hasGroq     ? "Connected" : "Add VITE_GROQ_API_KEY to .env",  key: "VITE_GROQ_API_KEY"            },
-    { name: "Email SMTP",              desc: "Send outreach emails directly",        icon: Mail,     connected: false,       status: "Coming Soon",                                               key: "—"                            },
-    { name: "WhatsApp Business",       desc: "Send WhatsApp messages to leads",     icon: Shield,   connected: false,       status: "Coming Soon",                                               key: "—"                            },
+    { name: "Supabase Database",       desc: "Live data storage & realtime sync",  icon: Database, connected: hasSupabase, key: "VITE_SUPABASE_URL + ANON_KEY" },
+    { name: "RapidAPI · Google Places",desc: "Lead discovery & business search",   icon: Globe,    connected: hasRapidAPI, key: "VITE_RAPIDAPI_KEY"            },
+    { name: "Groq · Llama 3.3 70B",   desc: "AI pitches, proposals & briefings",  icon: Zap,      connected: hasGroq,     key: "VITE_GROQ_API_KEY"            },
+    { name: "Email SMTP",              desc: "Send outreach emails directly",      icon: Mail,     connected: false,       key: "—"                            },
+    { name: "WhatsApp Business",       desc: "Send WhatsApp messages to leads",    icon: Shield,   connected: false,       key: "—"                            },
   ];
 
   return (
@@ -496,11 +525,10 @@ function IntegrationSettings() {
       className="glass rounded-xl p-6 space-y-4">
       <h3 className="font-heading text-lg text-foreground">Integrations</h3>
       <p className="text-xs text-muted-foreground">
-        Configure API keys in your <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">.env</code> file at the project root.
+        Configure API keys in your <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">.env</code> file.
       </p>
       {INTEGRATIONS.map((int) => (
-        <div key={int.name}
-          className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border">
+        <div key={int.name} className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg ${int.connected ? "bg-primary/10" : "bg-muted"}`}>
               <int.icon className={`w-5 h-5 ${int.connected ? "text-primary" : "text-muted-foreground"}`} />
@@ -513,11 +541,11 @@ function IntegrationSettings() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="shrink-0">
             {int.connected
               ? <span className="text-xs font-stats text-success flex items-center gap-1"><Check className="w-3 h-3" /> Active</span>
-              : int.status === "Coming Soon"
-              ? <span className="text-xs font-stats text-muted-foreground">{int.status}</span>
+              : int.key === "—"
+              ? <span className="text-xs font-stats text-muted-foreground">Coming Soon</span>
               : <span className="text-xs font-stats text-amber-400">Not configured</span>}
           </div>
         </div>
@@ -528,22 +556,21 @@ function IntegrationSettings() {
 
 // ── Import / Export ────────────────────────────────────────────────────────────
 function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "success" | "error") => void }) {
-  const fileRef                     = useRef<HTMLInputElement>(null);
+  const fileRef                         = useRef<HTMLInputElement>(null);
   const [importing,    setImporting]    = useState(false);
   const [exporting,    setExporting]    = useState(false);
   const [importResult, setImportResult] = useState<{ added: number; skipped: number } | null>(null);
 
-  // ✅ FIX: scope export to current user
   async function handleExport() {
     setExporting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase
         .from("leads")
         .select("business_name, category, city, state, phone, email, website, rating, review_count, score, score_label, status, deal_value, has_website, source, created_at")
-        .eq("user_id", user.id)                      // ✅ only export own leads
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -553,11 +580,12 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
         "Website","Rating","Reviews","Score","Score Label",
         "Status","Deal Value","Has Website","Source","Created At",
       ];
-      const rows = (data ?? []).map((l: any) => [
-        l.business_name, l.category, l.city, l.state, l.phone, l.email,
-        l.website, l.rating, l.review_count, l.score, l.score_label,
-        l.status, l.deal_value, l.has_website, l.source, l.created_at,
-      ].map((v) => `"${v ?? ""}"`).join(","));
+      const rows = (data ?? []).map((l: any) =>
+        [l.business_name, l.category, l.city, l.state, l.phone, l.email,
+         l.website, l.rating, l.review_count, l.score, l.score_label,
+         l.status, l.deal_value, l.has_website, l.source, l.created_at,
+        ].map((v) => `"${v ?? ""}"`).join(",")
+      );
 
       const csv  = [headers.join(","), ...rows].join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
@@ -575,7 +603,6 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
     }
   }
 
-  // ✅ FIX: stamp user_id on every imported lead
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -583,7 +610,7 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
     setImportResult(null);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const text  = await file.text();
@@ -596,8 +623,7 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
 
       const records = lines.slice(1).map((line) => {
         const vals: string[] = [];
-        let cur = "";
-        let inQ = false;
+        let cur = ""; let inQ = false;
         for (const ch of line) {
           if (ch === '"') { inQ = !inQ; continue; }
           if (ch === "," && !inQ) { vals.push(cur.trim()); cur = ""; continue; }
@@ -624,15 +650,14 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
         source:        "csv_import",
         score:         parseInt(r.score) || 30,
         score_label:   r.score_label   || "Low",
-        user_id:       user.id,                      // ✅ stamp user_id on every row
+        user_id:       user.id,
       })).filter((r) => r.business_name.trim());
 
       if (mapped.length === 0) throw new Error("No valid rows found. Check column names.");
 
       let added = 0;
-      const batchSize = 50;
-      for (let i = 0; i < mapped.length; i += batchSize) {
-        const batch = mapped.slice(i, i + batchSize);
+      for (let i = 0; i < mapped.length; i += 50) {
+        const batch = mapped.slice(i, i + 50);
         const { error } = await supabase.from("leads").insert(batch);
         if (!error) added += batch.length;
       }
@@ -653,11 +678,8 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
       <h3 className="font-heading text-lg text-foreground">Import / Export</h3>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Import */}
-        <div
-          onClick={() => !importing && fileRef.current?.click()}
-          className="glass rounded-xl p-6 text-center border border-dashed border-border hover:border-primary/50 transition-all cursor-pointer group"
-        >
+        <div onClick={() => !importing && fileRef.current?.click()}
+          className="glass rounded-xl p-6 text-center border border-dashed border-border hover:border-primary/50 transition-all cursor-pointer group">
           <input ref={fileRef} type="file" accept=".csv" onChange={handleImport} className="hidden" />
           {importing
             ? <Loader2 className="w-8 h-8 text-primary mx-auto mb-3 animate-spin" />
@@ -679,25 +701,21 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
           )}
         </div>
 
-        {/* Export */}
-        <div
-          onClick={!exporting ? handleExport : undefined}
-          className="glass rounded-xl p-6 text-center border border-dashed border-border hover:border-primary/50 transition-all cursor-pointer group"
-        >
+        <div onClick={!exporting ? handleExport : undefined}
+          className="glass rounded-xl p-6 text-center border border-dashed border-border hover:border-primary/50 transition-all cursor-pointer group">
           {exporting
             ? <Loader2  className="w-8 h-8 text-cyan-400 mx-auto mb-3 animate-spin" />
             : <Download className="w-8 h-8 text-cyan-400 mx-auto mb-3 group-hover:scale-110 transition-transform" />}
           <h4 className="font-heading text-sm text-foreground mb-1">
             {exporting ? "Exporting..." : "Export Leads (CSV)"}
           </h4>
-          <p className="text-xs text-muted-foreground">Download all leads with current status</p>
+          <p className="text-xs text-muted-foreground">Download all your leads with current status</p>
           <p className="text-[10px] text-muted-foreground mt-2 font-stats">
             Includes: Score, Tags, Status, Contact History
           </p>
         </div>
       </div>
 
-      {/* CSV template helper */}
       <div className="glass rounded-lg p-4 border border-border space-y-2">
         <p className="text-xs font-heading font-semibold text-foreground">CSV Template</p>
         <p className="text-[10px] font-stats text-muted-foreground leading-relaxed">
@@ -705,8 +723,7 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
         </p>
         <div className="flex flex-wrap gap-1.5">
           {["business_name","category","city","state","phone","email","website","rating","status"].map((col) => (
-            <span key={col}
-              className="text-[10px] font-stats px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+            <span key={col} className="text-[10px] font-stats px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
               {col}
             </span>
           ))}
@@ -717,9 +734,7 @@ function ImportExportSettings({ showToast }: { showToast: (m: string, t?: "succe
             const blob = new Blob([template], { type: "text/csv" });
             const url  = URL.createObjectURL(blob);
             const a    = document.createElement("a");
-            a.href     = url;
-            a.download = "leads_template.csv";
-            a.click();
+            a.href = url; a.download = "leads_template.csv"; a.click();
           }}
           className="text-xs text-primary hover:underline font-stats">
           ↓ Download template CSV
@@ -734,26 +749,32 @@ function AppearanceSettings() {
   const [compact,    setCompact]    = useState(() => localStorage.getItem("crm_compact")    === "true");
   const [animations, setAnimations] = useState(() => localStorage.getItem("crm_animations") !== "false");
 
-  function toggleCompact() {
-    const v = !compact;
-    setCompact(v);
-    localStorage.setItem("crm_compact", String(v));
-  }
-
-  function toggleAnimations() {
-    const v = !animations;
-    setAnimations(v);
-    localStorage.setItem("crm_animations", String(v));
-  }
-
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
       className="glass rounded-xl p-6 space-y-4">
       <h3 className="font-heading text-lg text-foreground">Appearance</h3>
       {[
-        { icon: Moon,      label: "Dark Mode",     desc: "Always on — LeadHunter is built for the dark side",  control: <span className="text-xs font-stats text-primary">ALWAYS ON</span> },
-        { icon: RefreshCw, label: "Compact Mode",  desc: "Reduce spacing for more data density",                control: <Toggle on={compact}    onChange={toggleCompact}    /> },
-        { icon: Zap,       label: "Animations",    desc: "Smooth transitions and micro-interactions",           control: <Toggle on={animations} onChange={toggleAnimations} /> },
+        {
+          icon: Moon,      label: "Dark Mode",
+          desc: "Always on — LeadHunter is built for the dark side",
+          control: <span className="text-xs font-stats text-primary">ALWAYS ON</span>,
+        },
+        {
+          icon: RefreshCw, label: "Compact Mode",
+          desc: "Reduce spacing for more data density",
+          control: <Toggle on={compact} onChange={(v) => {
+            setCompact(v);
+            localStorage.setItem("crm_compact", String(v));
+          }} />,
+        },
+        {
+          icon: Zap,       label: "Animations",
+          desc: "Smooth transitions and micro-interactions",
+          control: <Toggle on={animations} onChange={(v) => {
+            setAnimations(v);
+            localStorage.setItem("crm_animations", String(v));
+          }} />,
+        },
       ].map((item) => (
         <div key={item.label} className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
           <div className="flex items-center gap-3">
