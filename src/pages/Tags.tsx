@@ -5,13 +5,8 @@ import {
   Loader2, Trash2, Edit3, Save, AlertCircle,
   Check, RefreshCw
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabase"; // ✅ FIXED: use shared client (has auth session)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface TagData {
@@ -91,17 +86,14 @@ export default function Tags() {
 
   // ── Seed predefined tags for new users ────────────────────────────────────
   async function seedPredefinedTags(userId: string) {
-    // Check if user already has tags
     const { data: existing } = await supabase
       .from("tags")
       .select("id")
       .eq("user_id", userId)
       .limit(1);
 
-    // If they already have at least one tag, don't seed
     if (existing && existing.length > 0) return;
 
-    // Insert all predefined tags for this user
     await supabase.from("tags").insert(
       PREDEFINED_TAGS.map((t) => ({
         name:    t.name,
@@ -119,10 +111,8 @@ export default function Tags() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // ✅ Seed predefined tags if this is a new user
       await seedPredefinedTags(user.id);
 
-      // ✅ Step 1: fetch only this user's tags
       const { data: tagsData, error: tagsErr } = await supabase
         .from("tags")
         .select("*")
@@ -133,7 +123,6 @@ export default function Tags() {
 
       const userTagIds = (tagsData ?? []).map((t: TagData) => t.id);
 
-      // ✅ Step 2: fetch lead_tags filtered by user's tag IDs
       const { data: leadTagsData, error: ltErr } = userTagIds.length > 0
         ? await supabase
             .from("lead_tags")
@@ -144,7 +133,6 @@ export default function Tags() {
 
       if (ltErr) throw ltErr;
 
-      // ✅ Step 3: count leads per tag
       const countMap: Record<string, number> = {};
       (leadTagsData ?? []).forEach((lt: any) => {
         countMap[lt.tag_id] = (countMap[lt.tag_id] ?? 0) + 1;
@@ -424,14 +412,9 @@ export default function Tags() {
                     }`}
                     style={{
                       color:           tag.color,
-                      backgroundColor: selectedTag === tag.name
-                        ? `${tag.color}30`
-                        : `${tag.color}15`,
+                      backgroundColor: selectedTag === tag.name ? `${tag.color}30` : `${tag.color}15`,
                       borderColor:     `${tag.color}50`,
-                      
-                      boxShadow:       selectedTag === tag.name
-                        ? `0 0 12px ${tag.color}40`
-                        : undefined,
+                      boxShadow:       selectedTag === tag.name ? `0 0 12px ${tag.color}40` : undefined,
                     }}
                   >
                     {tag.name}
@@ -446,7 +429,6 @@ export default function Tags() {
                   </button>
                 )}
 
-                {/* Edit / Delete on hover */}
                 {editingTag !== tag.id && (
                   <div className="absolute -top-2 -right-1 hidden group-hover:flex gap-1 z-10">
                     <button
@@ -504,9 +486,7 @@ export default function Tags() {
           <div className="text-center py-10 space-y-2">
             <Users className="w-6 h-6 text-muted-foreground mx-auto opacity-40" />
             <p className="text-sm text-muted-foreground">
-              {selectedTag
-                ? `No leads tagged "${selectedTag}" yet.`
-                : "No tagged leads yet."}
+              {selectedTag ? `No leads tagged "${selectedTag}" yet.` : "No tagged leads yet."}
             </p>
             <p className="text-xs text-muted-foreground">
               Open any lead and assign tags from the Lead Detail page.

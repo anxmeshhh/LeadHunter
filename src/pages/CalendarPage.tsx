@@ -6,13 +6,8 @@ import {
   Loader2, Trash2, X, Sparkles, Brain, RefreshCw,
   AlertCircle, Calendar, Target,
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabase"; // ✅ FIXED: use shared client (has auth session)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Task {
@@ -126,12 +121,11 @@ export default function CalendarPage() {
   const [briefingDate,    setBriefingDate]    = useState("");
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
-  // ✅ FIX: scope both queries to current user
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const [
@@ -141,12 +135,12 @@ export default function CalendarPage() {
         supabase
           .from("tasks")
           .select("*, leads(business_name, city, status, phone)")
-          .eq("user_id", user.id)              // ✅
+          .eq("user_id", user.id)
           .order("due_date", { ascending: true }),
         supabase
           .from("leads")
           .select("id, business_name")
-          .eq("user_id", user.id)              // ✅
+          .eq("user_id", user.id)
           .order("business_name"),
       ]);
 
@@ -177,12 +171,11 @@ export default function CalendarPage() {
   }, [selectedDate]);
 
   // ── Add Task ───────────────────────────────────────────────────────────────
-  // ✅ FIX: stamp user_id on insert
   async function handleAddTask() {
     if (!newTask.title.trim() || !newTask.due_date) return;
     setSaving(true);
 
-    const { data: { user } } = await supabase.auth.getUser(); // ✅
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSaving(false); return; }
 
     const { error: err } = await supabase.from("tasks").insert({
@@ -191,7 +184,7 @@ export default function CalendarPage() {
       priority: newTask.priority,
       due_date: newTask.due_date,
       is_done:  false,
-      user_id:  user.id,                       // ✅
+      user_id:  user.id,
     });
 
     if (!err) {
@@ -203,7 +196,6 @@ export default function CalendarPage() {
   }
 
   // ── Toggle done ────────────────────────────────────────────────────────────
-  // ✅ FIX: scope update to current user
   async function handleToggle(task: Task) {
     setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, is_done: !t.is_done } : t));
     const { data: { user } } = await supabase.auth.getUser();
@@ -211,11 +203,10 @@ export default function CalendarPage() {
       .from("tasks")
       .update({ is_done: !task.is_done })
       .eq("id", task.id)
-      .eq("user_id", user?.id);               // ✅
+      .eq("user_id", user?.id);
   }
 
   // ── Delete ─────────────────────────────────────────────────────────────────
-  // ✅ FIX: scope delete to current user
   async function handleDelete(id: string) {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     const { data: { user } } = await supabase.auth.getUser();
@@ -223,7 +214,7 @@ export default function CalendarPage() {
       .from("tasks")
       .delete()
       .eq("id", id)
-      .eq("user_id", user?.id);               // ✅
+      .eq("user_id", user?.id);
   }
 
   // ── AI Briefing ────────────────────────────────────────────────────────────
@@ -275,7 +266,6 @@ export default function CalendarPage() {
     .filter(([date]) => date > today_key)
     .reduce((sum, [, ts]) => sum + ts.filter((t) => !t.is_done).length, 0);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
 
