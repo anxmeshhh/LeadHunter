@@ -6,13 +6,8 @@ import {
   Sparkles, Loader2, RefreshCw, Check, Search,
   X, Plus, AlertCircle, Zap
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabase"; // ✅ FIXED: use shared client (has auth session)
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type OutreachMode   = "Call" | "Email" | "WhatsApp" | "LinkedIn" | "Other";
@@ -135,12 +130,11 @@ function LogOutreachModal({
     l.business_name.toLowerCase().includes(search.toLowerCase())
   );
 
-  // ✅ FIX: stamp user_id on insert, scope lead update
   async function handleSave() {
     if (!leadId) return;
     setSaving(true);
 
-    const { data: { user } } = await supabase.auth.getUser(); // ✅
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSaving(false); return; }
 
     await supabase.from("outreach_history").insert({
@@ -150,14 +144,14 @@ function LogOutreachModal({
       message:      message || null,
       status,
       contacted_at: new Date().toISOString(),
-      user_id:      user.id,                    // ✅
+      user_id:      user.id,
     });
 
     await supabase
       .from("leads")
       .update({ status: "Contacted" })
       .eq("id", leadId)
-      .eq("user_id", user.id)                   // ✅
+      .eq("user_id", user.id)
       .eq("status", "New Lead");
 
     setSaving(false);
@@ -307,25 +301,24 @@ export default function Outreach() {
   const [searchQuery,  setSearchQuery]  = useState("");
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
-  // ✅ FIX: scope both queries to current user
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const [{ data: outreachData, error: outErr }, { data: leadsData, error: leadsErr }] = await Promise.all([
         supabase
           .from("outreach_history")
           .select("id, lead_id, contact_mode, subject, message, status, contacted_at, leads(business_name, city, category)")
-          .eq("user_id", user.id)                               // ✅
+          .eq("user_id", user.id)
           .order("contacted_at", { ascending: false })
           .limit(50),
         supabase
           .from("leads")
           .select("id, business_name, category, city, phone, website, rating, review_count, ai_opportunities")
-          .eq("user_id", user.id)                               // ✅
+          .eq("user_id", user.id)
           .order("score", { ascending: false }),
       ]);
 
@@ -366,7 +359,6 @@ export default function Outreach() {
     return () => { supabase.removeChannel(ch); };
   }, [fetchAll]);
 
-  // ✅ FIX: scope status update to current user
   async function handleStatusUpdate(id: string, newStatus: OutreachStatus) {
     setRecords((prev) => prev.map((r) => r.id === id ? { ...r, status: newStatus } : r));
     const { data: { user } } = await supabase.auth.getUser();
@@ -374,10 +366,9 @@ export default function Outreach() {
       .from("outreach_history")
       .update({ status: newStatus })
       .eq("id", id)
-      .eq("user_id", user?.id);                                 // ✅
+      .eq("user_id", user?.id);
   }
 
-  // ✅ FIX: scope delete to current user
   async function handleDelete(id: string) {
     setRecords((prev) => prev.filter((r) => r.id !== id));
     const { data: { user } } = await supabase.auth.getUser();
@@ -385,7 +376,7 @@ export default function Outreach() {
       .from("outreach_history")
       .delete()
       .eq("id", id)
-      .eq("user_id", user?.id);                                 // ✅
+      .eq("user_id", user?.id);
   }
 
   async function handleCopy(text: string) {
