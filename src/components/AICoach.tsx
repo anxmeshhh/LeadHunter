@@ -1,297 +1,335 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  Brain, X, Zap, AlertTriangle, Clock,
-  TrendingUp, Target, BarChart2, ChevronRight,
-  Loader2, RefreshCw, CheckCircle2,
+  Brain, X, Send, Loader2, RefreshCw,
+  ChevronRight, Zap, User, Sparkles,
+  AlertTriangle, Clock, Target, BarChart2,
+  TrendingUp, MessageSquare, Plus,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type AlertSeverity = "critical" | "warning" | "info";
-
-interface CoachAlert {
-  id:          string;
-  severity:    AlertSeverity;
-  icon:        any;
-  title:       string;
-  detail:      string;
-  action:      string;
-  actionRoute: string;
-  value?:      string | number;
+interface Message {
+  id:       string;
+  role:     "user" | "assistant";
+  content:  string;
+  time:     Date;
+  actions?: { label: string; route: string }[];
 }
 
-// ── Severity styles ────────────────────────────────────────────────────────────
-const SEVERITY = {
-  critical: {
-    dot:    "bg-red-400",
-    badge:  "bg-red-500/10 border-red-500/30 text-red-400",
-    icon:   "text-red-400",
-    bar:    "bg-red-500",
-    glow:   "rgba(239,68,68,0.2)",
-  },
-  warning: {
-    dot:    "bg-amber-400",
-    badge:  "bg-amber-500/10 border-amber-500/30 text-amber-400",
-    icon:   "text-amber-400",
-    bar:    "bg-amber-400",
-    glow:   "rgba(251,191,36,0.15)",
-  },
-  info: {
-    dot:    "bg-primary",
-    badge:  "bg-primary/10 border-primary/20 text-primary",
-    icon:   "text-primary",
-    bar:    "bg-primary",
-    glow:   "rgba(var(--primary),0.1)",
-  },
-};
+interface CRMContext {
+  totalLeads:       number;
+  activeLeads:      number;
+  stuckLeads:       { name: string; status: string; days: number }[];
+  coldDeals:        { name: string; status: string; value: number }[];
+  outreachToday:    number;
+  outreachWeek:     number;
+  closedWonValue:   number;
+  topCategory:      string;
+  topCategoryCount: number;
+  followUpCount:    number;
+  replyRate:        number;
+  pipeline:         { stage: string; count: number; value: number }[];
+}
 
-// ── AI Insight generator ───────────────────────────────────────────────────────
-async function generateAIInsight(alerts: CoachAlert[]): Promise<string> {
+// ── Quick prompts ──────────────────────────────────────────────────────────────
+const QUICK_PROMPTS = [
+  { label: "What should I do today?",      icon: Target       },
+  { label: "Which deals are at risk?",      icon: AlertTriangle},
+  { label: "How's my pipeline looking?",   icon: BarChart2    },
+  { label: "Who should I follow up with?", icon: MessageSquare},
+  { label: "Give me my weekly summary",    icon: TrendingUp   },
+  { label: "How can I close more deals?",  icon: Zap          },
+];
+
+// ── Fetch CRM context ──────────────────────────────────────────────────────────
+async function fetchCRMContext(userId: string): Promise<CRMContext> {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayISO    = todayStart.toISOString();
+  const weekAgo     = new Date(Date.now() - 7  * 86400000).toISOString();
+  const lastWeekAgo = new Date(Date.now() - 14 * 86400000).toISOString();
+
+  const [
+    { data: leads },
+    { data: outreachToday },
+    { data: outreachWeek },
+    { data: allOutreach },
+    { data: closedWon },
+  ] = await Promise.all([
+    supabase.from("leads").select("id, business_name, status, updated_at, category, deal_value, score").eq("user_id", userId),
+    supabase.from("outreach_history").select("id").eq("user_id", userId).gte("contacted_at", todayISO),
+    supabase.from("outreach_history").select("id, status").eq("user_id", userId).gte("contacted_at", weekAgo),
+    supabase.from("outreach_history").select("lead_id, contacted_at, status").eq("user_id", userId).order("contacted_at", { ascending: false }),
+    supabase.from("leads").select("deal_value").eq("user_id", userId).eq("status", "Closed Won"),
+  ]);
+
+  const outreachMap: Record<string, { last: string; count: number }> = {};
+  (allOutreach ?? []).forEach((o: any) => {
+    if (!outreachMap[o.lead_id]) outreachMap[o.lead_id] = { last: o.contacted_at, count: 0 };
+    outreachMap[o.lead_id].count++;
+  });
+
+  const activeLeads = (leads ?? []).filter((l: any) => !["Closed Won", "Closed Lost"].includes(l.status));
+
+  const stuckLeads = activeLeads
+    .filter((l: any) => {
+      const days = Math.floor((Date.now() - new Date(l.updated_at).getTime()) / 86400000);
+      return days >= 7 && l.status !== "New Lead";
+    })
+    .map((l: any) => ({
+      name:   l.business_name,
+      status: l.status,
+      days:   Math.floor((Date.now() - new Date(l.updated_at).getTime()) / 86400000),
+    }))
+    .sort((a: any, b: any) => b.days - a.days)
+    .slice(0, 5);
+
+  const coldDeals = activeLeads
+    .filter((l: any) => {
+      const info = outreachMap[l.id];
+      const days = info ? Math.floor((Date.now() - new Date(info.last).getTime()) / 86400000) : 999;
+      return days >= 7 && ["Interested", "Proposal Sent", "Negotiation"].includes(l.status);
+    })
+    .map((l: any) => ({ name: l.business_name, status: l.status, value: l.deal_value ?? 0 }))
+    .slice(0, 5);
+
+  const stageMap: Record<string, { count: number; value: number }> = {};
+  (leads ?? []).forEach((l: any) => {
+    if (!stageMap[l.status]) stageMap[l.status] = { count: 0, value: 0 };
+    stageMap[l.status].count++;
+    stageMap[l.status].value += l.deal_value ?? 0;
+  });
+  const pipeline = Object.entries(stageMap).map(([stage, data]) => ({ stage, ...data }));
+
+  const catMap: Record<string, number> = {};
+  (leads ?? []).forEach((l: any) => { if (l.category) catMap[l.category] = (catMap[l.category] ?? 0) + 1; });
+  const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0] ?? ["General", 0];
+
+  const followUpCount = activeLeads.filter((l: any) => {
+    const info = outreachMap[l.id];
+    if (!info) return true;
+    return Math.floor((Date.now() - new Date(info.last).getTime()) / 86400000) >= 3;
+  }).length;
+
+  const replied     = (allOutreach ?? []).filter((o: any) => o.status === "Replied").length;
+  const replyRate   = (allOutreach ?? []).length > 0 ? Math.round((replied / (allOutreach ?? []).length) * 100) : 0;
+  const closedValue = (closedWon ?? []).reduce((s: number, l: any) => s + (l.deal_value ?? 0), 0);
+
+  return {
+    totalLeads:       (leads ?? []).length,
+    activeLeads:      activeLeads.length,
+    stuckLeads:       stuckLeads as any,
+    coldDeals:        coldDeals as any,
+    outreachToday:    (outreachToday ?? []).length,
+    outreachWeek:     (outreachWeek ?? []).length,
+    closedWonValue:   closedValue,
+    topCategory:      topCat[0],
+    topCategoryCount: topCat[1] as number,
+    followUpCount,
+    replyRate,
+    pipeline,
+  };
+}
+
+// ── System prompt ──────────────────────────────────────────────────────────────
+function buildSystemPrompt(ctx: CRMContext): string {
+  const pipelineText = ctx.pipeline
+    .map((p) => `  ${p.stage}: ${p.count} leads${p.value > 0 ? ` (Rs. ${(p.value / 1000).toFixed(0)}K)` : ""}`)
+    .join("\n");
+
+  const stuckText = ctx.stuckLeads.length > 0
+    ? ctx.stuckLeads.map((l) => `  - ${l.name} (${l.status}, ${l.days} days stuck)`).join("\n")
+    : "  None";
+
+  const coldText = ctx.coldDeals.length > 0
+    ? ctx.coldDeals.map((l) => `  - ${l.name} (${l.status}${l.value > 0 ? `, Rs. ${(l.value / 1000).toFixed(0)}K` : ""})`).join("\n")
+    : "  None";
+
+  return `You are an elite AI sales coach inside LeadHunter CRM, built for Indian freelancers who sell web design, SEO, and digital services to local businesses.
+
+You have LIVE access to the user's CRM data right now:
+
+PIPELINE:
+${pipelineText}
+
+KEY METRICS:
+- Total leads: ${ctx.totalLeads}
+- Active leads: ${ctx.activeLeads}
+- Outreach today: ${ctx.outreachToday}
+- Outreach this week: ${ctx.outreachWeek}
+- Reply rate: ${ctx.replyRate}%
+- Revenue closed: Rs. ${(ctx.closedWonValue / 1000).toFixed(0)}K
+- Follow-ups needed: ${ctx.followUpCount} leads
+- Top category: ${ctx.topCategory} (${ctx.topCategoryCount} leads)
+
+STUCK DEALS (7+ days no movement):
+${stuckText}
+
+COLD HOT DEALS (Interested/Proposal/Negotiation, no contact 7d+):
+${coldText}
+
+YOUR PERSONALITY:
+- Sharp, direct, motivating — like a no-nonsense Indian sales mentor
+- Always reference SPECIFIC data from above — lead names, numbers, percentages
+- Actionable steps, not generic advice
+- Concise — 2-4 sentences max unless the user asks for more detail
+- Plain English only — no markdown, no bullet points, no asterisks, no symbols
+- You understand Indian B2B market — WhatsApp outreach, local business owners, price sensitivity
+- Currency is Indian Rupees written as Rs.
+- You always know the data — never say you don't have access to it`;
+}
+
+// ── Call Groq ──────────────────────────────────────────────────────────────────
+async function callCoach(messages: { role: string; content: string }[], systemPrompt: string): Promise<string> {
   const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!groqKey) return "Add VITE_GROQ_API_KEY to enable AI insights.";
-
-  const summary = alerts.map((a) => `- ${a.title}: ${a.detail}`).join("\n");
-
-  const prompt = `You are a sharp sales coach for an Indian freelancer. Based on these CRM alerts, give ONE punchy sentence of advice. Be direct, specific, motivating. No fluff. Max 20 words.
-
-Alerts:
-${summary}
-
-One-sentence coaching tip:`;
-
+  if (!groqKey) return "Please add VITE_GROQ_API_KEY to your .env to enable the AI Coach.";
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
+      method:  "POST",
       headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 60,
-        temperature: 0.8,
+        model:       "llama-3.3-70b-versatile",
+        messages:    [{ role: "system", content: systemPrompt }, ...messages],
+        max_tokens:  400,
+        temperature: 0.75,
       }),
     });
     const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
+    return data.choices?.[0]?.message?.content?.trim() ?? "Could not generate a response.";
   } catch {
-    return "";
+    return "Connection error. Please check your Groq API key.";
   }
 }
 
-// ── Data fetcher ───────────────────────────────────────────────────────────────
-async function fetchCoachAlerts(userId: string): Promise<CoachAlert[]> {
-  const alerts: CoachAlert[] = [];
+// ── Smart action buttons ───────────────────────────────────────────────────────
+function extractActions(content: string): { label: string; route: string }[] {
+  const actions: { label: string; route: string }[] = [];
+  if (/follow.?up|contact|reach out|call|whatsapp/i.test(content)) actions.push({ label: "Open Follow-up Queue", route: "/followup" });
+  if (/pipeline|stuck|stage|move|kanban/i.test(content))            actions.push({ label: "View Pipeline", route: "/pipeline" });
+  if (/proposal/i.test(content))                                     actions.push({ label: "Go to Proposals", route: "/proposals" });
+  if (/analytics|performance|week|stats/i.test(content))            actions.push({ label: "View Analytics", route: "/analytics" });
+  if (/discover|find.*lead|new.*lead|search/i.test(content))        actions.push({ label: "Discover Leads", route: "/discover" });
+  return actions.slice(0, 2);
+}
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayISO   = todayStart.toISOString();
-  const weekAgo    = new Date(Date.now() - 7  * 86400000).toISOString();
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  const lastWeekStart = new Date(Date.now() - 14 * 86400000).toISOString();
-
-  const [
-    { data: allLeads },
-    { data: outreachToday },
-    { data: outreachThisWeek },
-    { data: outreachLastWeek },
-    { data: allOutreach },
-  ] = await Promise.all([
-    supabase.from("leads")
-      .select("id, business_name, status, updated_at, category, deal_value")
-      .eq("user_id", userId)
-      .not("status", "in", '("Closed Won","Closed Lost")'),
-    supabase.from("outreach_history")
-      .select("id")
-      .eq("user_id", userId)
-      .gte("contacted_at", todayISO),
-    supabase.from("outreach_history")
-      .select("id")
-      .eq("user_id", userId)
-      .gte("contacted_at", weekAgo),
-    supabase.from("outreach_history")
-      .select("id")
-      .eq("user_id", userId)
-      .gte("contacted_at", lastWeekStart)
-      .lt("contacted_at", weekAgo),
-    supabase.from("outreach_history")
-      .select("lead_id, contacted_at")
-      .eq("user_id", userId)
-      .order("contacted_at", { ascending: false }),
-  ]);
-
-  // ── 1. Leads stuck in stage 7+ days ───────────────────────────────────────
-  const stuckLeads = (allLeads ?? []).filter((l) => {
-    const days = Math.floor((Date.now() - new Date(l.updated_at).getTime()) / 86400000);
-    return days >= 7 && !["New Lead"].includes(l.status);
-  });
-
-  if (stuckLeads.length > 0) {
-    const topStuck = stuckLeads.sort((a, b) =>
-      new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
-    )[0];
-    const days = Math.floor((Date.now() - new Date(topStuck.updated_at).getTime()) / 86400000);
-    alerts.push({
-      id:          "stuck-leads",
-      severity:    stuckLeads.length >= 3 ? "critical" : "warning",
-      icon:        Clock,
-      title:       `${stuckLeads.length} deal${stuckLeads.length > 1 ? "s" : ""} stuck`,
-      detail:      `${topStuck.business_name} hasn't moved in ${days} days`,
-      action:      "View Pipeline",
-      actionRoute: "/pipeline",
-      value:       stuckLeads.length,
-    });
-  }
-
-  // ── 2. No outreach logged today ────────────────────────────────────────────
-  const todayCount = (outreachToday ?? []).length;
-  if (todayCount === 0) {
-    alerts.push({
-      id:          "no-outreach-today",
-      severity:    "critical",
-      icon:        AlertTriangle,
-      title:       "No outreach today",
-      detail:      "You haven't contacted anyone yet today",
-      action:      "Open Queue",
-      actionRoute: "/followup",
-      value:       0,
-    });
-  }
-
-  // ── 3. Cold deals going silent ─────────────────────────────────────────────
-  const outreachMap: Record<string, string> = {};
-  (allOutreach ?? []).forEach((o) => {
-    if (!outreachMap[o.lead_id]) outreachMap[o.lead_id] = o.contacted_at;
-  });
-
-  const coldDeals = (allLeads ?? []).filter((l) => {
-    const lastContact = outreachMap[l.id];
-    if (!lastContact) return true;
-    const days = Math.floor((Date.now() - new Date(lastContact).getTime()) / 86400000);
-    return days >= 7;
-  }).filter((l) => ["Interested", "Proposal Sent", "Negotiation"].includes(l.status));
-
-  if (coldDeals.length > 0) {
-    const totalValue = coldDeals.reduce((s, l) => s + (l.deal_value ?? 0), 0);
-    alerts.push({
-      id:          "cold-deals",
-      severity:    "critical",
-      icon:        AlertTriangle,
-      title:       `${coldDeals.length} hot deal${coldDeals.length > 1 ? "s" : ""} going cold`,
-      detail:      `${coldDeals[0].business_name}${coldDeals.length > 1 ? ` + ${coldDeals.length - 1} more` : ""} — no contact in 7d+`,
-      action:      "Follow Up Now",
-      actionRoute: "/followup",
-      value:       totalValue > 0 ? `₹${(totalValue / 1000).toFixed(0)}K at risk` : coldDeals.length,
-    });
-  }
-
-  // ── 4. Best category to focus on ──────────────────────────────────────────
-  const categoryMap: Record<string, number> = {};
-  (allLeads ?? []).forEach((l) => {
-    if (l.category) categoryMap[l.category] = (categoryMap[l.category] ?? 0) + 1;
-  });
-  const topCategory = Object.entries(categoryMap).sort((a, b) => b[1] - a[1])[0];
-
-  if (topCategory && topCategory[1] >= 2) {
-    alerts.push({
-      id:          "best-category",
-      severity:    "info",
-      icon:        Target,
-      title:       `Focus on ${topCategory[0]}`,
-      detail:      `You have ${topCategory[1]} ${topCategory[0]} leads — highest concentration`,
-      action:      "View Leads",
-      actionRoute: "/leads",
-      value:       `${topCategory[1]} leads`,
-    });
-  }
-
-  // ── 5. Weekly performance vs last week ────────────────────────────────────
-  const thisWeekCount = (outreachThisWeek ?? []).length;
-  const lastWeekCount = (outreachLastWeek ?? []).length;
-
-  if (thisWeekCount > 0 || lastWeekCount > 0) {
-    const diff    = thisWeekCount - lastWeekCount;
-    const pctDiff = lastWeekCount > 0 ? Math.round((diff / lastWeekCount) * 100) : 100;
-    const isUp    = diff >= 0;
-
-    alerts.push({
-      id:          "weekly-perf",
-      severity:    isUp ? "info" : "warning",
-      icon:        BarChart2,
-      title:       isUp ? `Up ${pctDiff}% this week` : `Down ${Math.abs(pctDiff)}% this week`,
-      detail:      `${thisWeekCount} outreach this week vs ${lastWeekCount} last week`,
-      action:      "View Analytics",
-      actionRoute: "/analytics",
-      value:       `${thisWeekCount} this week`,
-    });
-  }
-
-  // Sort: critical first → warning → info
-  const order = { critical: 0, warning: 1, info: 2 };
-  return alerts.sort((a, b) => order[a.severity] - order[b.severity]);
+function formatTime(d: Date): string {
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function AICoach() {
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef  = useRef<HTMLInputElement>(null);
 
-  const [open,      setOpen]      = useState(false);
-  const [alerts,    setAlerts]    = useState<CoachAlert[]>([]);
-  const [insight,   setInsight]   = useState("");
-  const [loading,   setLoading]   = useState(false);
-  const [loadingAI, setLoadingAI] = useState(false);
-  const [userId,    setUserId]    = useState<string | null>(null);
-  const [lastFetch, setLastFetch] = useState(0);
+  const [open,       setOpen]       = useState(false);
+  const [messages,   setMessages]   = useState<Message[]>([]);
+  const [input,      setInput]      = useState("");
+  const [sending,    setSending]    = useState(false);
+  const [ctx,        setCtx]        = useState<CRMContext | null>(null);
+  const [loadingCtx, setLoadingCtx] = useState(false);
+  const [userId,     setUserId]     = useState<string | null>(null);
+  const [alertCount, setAlertCount] = useState(0);
 
-  // Get user on mount
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setUserId(user.id);
-    });
+    supabase.auth.getUser().then(({ data: { user } }) => { if (user) setUserId(user.id); });
   }, []);
 
-  const fetchAlerts = useCallback(async (uid: string) => {
-    // Debounce — don't refetch more than once per 60s
-    if (Date.now() - lastFetch < 60000 && alerts.length > 0) return;
-    setLoading(true);
+  const loadContext = useCallback(async (uid: string) => {
+    setLoadingCtx(true);
     try {
-      const data = await fetchCoachAlerts(uid);
-      setAlerts(data);
-      setLastFetch(Date.now());
+      const data = await fetchCRMContext(uid);
+      setCtx(data);
+      const critical = (data.stuckLeads.length > 0 ? 1 : 0)
+        + (data.outreachToday === 0 ? 1 : 0)
+        + (data.coldDeals.length > 0 ? 1 : 0);
+      setAlertCount(critical);
+      return data;
     } catch (e) {
-      console.error("AICoach fetch error:", e);
+      console.error("AICoach error:", e);
+      return null;
     } finally {
-      setLoading(false);
+      setLoadingCtx(false);
     }
-  }, [lastFetch, alerts.length]);
+  }, []);
 
-  // Fetch on mount when userId is ready
   useEffect(() => {
-    if (userId) fetchAlerts(userId);
+    if (userId) loadContext(userId);
   }, [userId]);
 
-  // Fetch when panel opens
+  // When panel opens — greet if first time
   useEffect(() => {
-    if (open && userId) {
-      fetchAlerts(userId);
+    if (open && ctx && messages.length === 0) {
+      sendGreeting(ctx);
     }
-  }, [open, userId]);
+    if (open) setTimeout(() => inputRef.current?.focus(), 250);
+  }, [open, ctx]);
 
-  async function handleGenerateInsight() {
-    if (!alerts.length || loadingAI) return;
-    setLoadingAI(true);
-    const text = await generateAIInsight(alerts);
-    setInsight(text);
-    setLoadingAI(false);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, sending]);
+
+  function sendGreeting(context: CRMContext) {
+    const criticals: string[] = [];
+    if (context.outreachToday === 0)   criticals.push("no outreach yet today");
+    if (context.coldDeals.length > 0)  criticals.push(`${context.coldDeals.length} hot deal${context.coldDeals.length > 1 ? "s" : ""} going cold`);
+    if (context.stuckLeads.length > 0) criticals.push(`${context.stuckLeads.length} deal${context.stuckLeads.length > 1 ? "s" : ""} stuck`);
+
+    const urgency = criticals.length > 0
+      ? `I'm seeing ${criticals.join(" and ")}. `
+      : "Your pipeline is looking solid. ";
+
+    setMessages([{
+      id:      "greeting",
+      role:    "assistant",
+      content: `Hey! I'm your AI Sales Coach and I have full access to your CRM right now. ${urgency}You have ${context.activeLeads} active leads and ${context.followUpCount} need follow-up. What do you want to work on?`,
+      time:    new Date(),
+      actions: criticals.length > 0
+        ? [{ label: "Show urgent items", route: "/followup" }]
+        : [],
+    }]);
   }
 
-  function handleAction(route: string) {
-    setOpen(false);
-    navigate(route);
+  async function handleSend(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
+    if (!text || sending || !ctx) return;
+
+    const userMsg: Message = { id: Date.now().toString(), role: "user", content: text, time: new Date() };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setSending(true);
+
+    const history = [...messages, userMsg]
+      .slice(-12)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    const response = await callCoach(history, buildSystemPrompt(ctx));
+    const actions  = extractActions(response);
+
+    setMessages((prev) => [...prev, {
+      id:      (Date.now() + 1).toString(),
+      role:    "assistant",
+      content: response,
+      time:    new Date(),
+      actions,
+    }]);
+    setSending(false);
   }
 
-  const criticalCount = alerts.filter((a) => a.severity === "critical").length;
-  const hasAlerts     = alerts.length > 0;
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  }
+
+  async function handleRefresh() {
+    if (!userId) return;
+    const newCtx = await loadContext(userId);
+    setMessages([]);
+    if (newCtx) sendGreeting(newCtx);
+  }
+
+  const showQuickPrompts = messages.length <= 1;
 
   return (
     <>
@@ -299,13 +337,15 @@ export default function AICoach() {
       <motion.button
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 1, type: "spring", stiffness: 200 }}
+        transition={{ delay: 1.2, type: "spring", stiffness: 200 }}
         onClick={() => setOpen(!open)}
         className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95"
         style={{
-          background:  open ? "rgba(10,12,18,0.97)" : "var(--gradient-primary)",
-          border:      open ? "1px solid rgba(255,255,255,0.1)" : "none",
-          boxShadow:   open ? "none" : "0 0 30px hsl(72,100%,50%)50, 0 8px 32px rgba(0,0,0,0.4)",
+          background: open ? "rgba(10,12,18,0.97)" : "var(--gradient-primary)",
+          border:     open ? "1px solid rgba(255,255,255,0.1)" : "none",
+          boxShadow:  open
+            ? "0 8px 32px rgba(0,0,0,0.4)"
+            : "0 0 30px hsl(72,100%,50%)50, 0 8px 32px rgba(0,0,0,0.4)",
         }}
       >
         <AnimatePresence mode="wait">
@@ -316,14 +356,12 @@ export default function AICoach() {
           ) : (
             <motion.div key="brain" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.15 }} className="relative">
               <Brain className="w-6 h-6 text-black" />
-              {/* Alert badge */}
-              {criticalCount > 0 && (
+              {alertCount > 0 && (
                 <motion.span
                   animate={{ scale: [1, 1.2, 1] }}
                   transition={{ repeat: Infinity, duration: 2 }}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-stats font-bold flex items-center justify-center border-2 border-background"
-                >
-                  {criticalCount > 9 ? "9+" : criticalCount}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-stats font-bold flex items-center justify-center border-2 border-background">
+                  {alertCount > 9 ? "9+" : alertCount}
                 </motion.span>
               )}
             </motion.div>
@@ -331,154 +369,204 @@ export default function AICoach() {
         </AnimatePresence>
       </motion.button>
 
-      {/* ── Panel ── */}
+      {/* ── Chat Panel ── */}
       <AnimatePresence>
         {open && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="fixed bottom-24 right-6 z-50 w-[360px] rounded-2xl overflow-hidden shadow-2xl"
+            transition={{ type: "spring", stiffness: 300, damping: 28 }}
+            className="fixed bottom-24 right-6 z-50 w-[380px] rounded-2xl overflow-hidden flex flex-col"
             style={{
+              height:         "580px",
               background:     "rgba(8,10,16,0.98)",
               border:         "1px solid rgba(255,255,255,0.08)",
               backdropFilter: "blur(24px)",
               boxShadow:      "0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
             }}
           >
-            {/* Panel header */}
-            <div className="px-4 py-3.5 flex items-center justify-between"
+            {/* Header */}
+            <div className="shrink-0 flex items-center justify-between px-4 py-3.5"
               style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}>
               <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg" style={{ background: "var(--gradient-primary)" }}>
-                  <Brain className="w-3.5 h-3.5 text-black" />
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+                    style={{ background: "var(--gradient-primary)" }}>
+                    <Brain className="w-4 h-4 text-black" />
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-background animate-pulse" />
                 </div>
                 <div>
-                  <p className="text-sm font-heading font-bold text-foreground">AI Coach</p>
-                  <p className="text-[9px] font-stats text-muted-foreground uppercase tracking-widest">
-                    {loading ? "Scanning your CRM..." : `${alerts.length} insight${alerts.length !== 1 ? "s" : ""} · live data`}
+                  <p className="text-sm font-heading font-bold text-foreground">AI Sales Coach</p>
+                  <p className="text-[9px] font-stats text-emerald-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    {loadingCtx ? "Reading your CRM..." : "Live CRM data · Groq Llama 3.3"}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => userId && fetchAlerts(userId)}
-                  disabled={loading}
+              <div className="flex items-center gap-1.5">
+                <button onClick={handleRefresh} disabled={loadingCtx} title="Refresh data & restart"
                   className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-                  style={{ background: "rgba(255,255,255,0.04)" }}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                  style={{ background: "rgba(255,255,255,0.04)" }}>
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingCtx ? "animate-spin" : ""}`} />
+                </button>
+                <button onClick={() => { setMessages([]); if (ctx) sendGreeting(ctx); }} title="New chat"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                  style={{ background: "rgba(255,255,255,0.04)" }}>
+                  <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
 
-            {/* Loading state */}
-            {loading && (
-              <div className="px-4 py-8 flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                <span className="text-xs font-stats text-muted-foreground">Analyzing your pipeline...</span>
-              </div>
-            )}
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+              style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
 
-            {/* Alerts list */}
-            {!loading && (
-              <div className="max-h-[420px] overflow-y-auto"
-                style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}>
-
-                {alerts.length === 0 && (
-                  <div className="px-4 py-10 text-center space-y-2">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto opacity-60" />
-                    <p className="text-sm font-heading font-semibold text-foreground">All clear!</p>
-                    <p className="text-xs text-muted-foreground">No alerts right now. Keep up the momentum.</p>
-                  </div>
-                )}
-
-                {alerts.map((alert, i) => {
-                  const sev     = SEVERITY[alert.severity];
-                  const Icon    = alert.icon;
-                  return (
+              {/* Loading */}
+              {loadingCtx && messages.length === 0 && (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center space-y-3">
                     <motion.div
-                      key={alert.id}
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                      className="px-4 py-3.5 group"
-                      style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
-                    >
-                      <div className="flex items-start gap-3">
-                        {/* Severity dot + icon */}
-                        <div className="relative shrink-0 mt-0.5">
-                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                            alert.severity === "critical" ? "bg-red-500/10" :
-                            alert.severity === "warning"  ? "bg-amber-500/10" :
-                            "bg-primary/10"
-                          }`}>
-                            <Icon className={`w-3.5 h-3.5 ${sev.icon}`} />
-                          </div>
-                          <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${sev.dot} ${
-                            alert.severity === "critical" ? "animate-pulse" : ""
-                          }`} />
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2 mb-0.5">
-                            <p className="text-[13px] font-heading font-semibold text-foreground leading-tight">
-                              {alert.title}
-                            </p>
-                            {alert.value && (
-                              <span className={`text-[9px] font-stats px-1.5 py-0.5 rounded border shrink-0 ${sev.badge}`}>
-                                {alert.value}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-muted-foreground leading-relaxed mb-2">
-                            {alert.detail}
-                          </p>
-                          <button
-                            onClick={() => handleAction(alert.actionRoute)}
-                            className={`flex items-center gap-1 text-[11px] font-stats font-semibold transition-colors ${sev.icon} hover:opacity-80`}
-                          >
-                            {alert.action} <ChevronRight className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
+                      animate={{ scale: [1, 1.05, 1] }}
+                      transition={{ repeat: Infinity, duration: 1.5 }}
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto"
+                      style={{ background: "var(--gradient-primary)" }}>
+                      <Brain className="w-7 h-7 text-black" />
                     </motion.div>
-                  );
-                })}
-              </div>
-            )}
+                    <p className="text-sm font-heading font-semibold text-foreground">Reading your CRM data...</p>
+                    <p className="text-xs text-muted-foreground">Pipeline, leads, outreach history</p>
+                  </div>
+                </div>
+              )}
 
-            {/* AI Insight section */}
-            {!loading && alerts.length > 0 && (
-              <div className="px-4 py-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.01)" }}>
-                {insight ? (
-                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
-                    <div className="flex items-center gap-1.5">
-                      <Zap className="w-3 h-3 text-primary" />
-                      <span className="text-[9px] font-stats text-primary uppercase tracking-widest">AI Coaching Tip</span>
-                    </div>
-                    <p className="text-xs text-foreground leading-relaxed italic">"{insight}"</p>
-                    <button onClick={handleGenerateInsight} disabled={loadingAI}
-                      className="text-[10px] font-stats text-muted-foreground hover:text-primary transition-colors">
-                      Refresh tip →
-                    </button>
-                  </motion.div>
-                ) : (
-                  <button
-                    onClick={handleGenerateInsight}
-                    disabled={loadingAI}
-                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-stats transition-all hover:opacity-90 disabled:opacity-50"
-                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+              {/* Chat messages */}
+              <AnimatePresence initial={false}>
+                {messages.map((msg) => (
+                  <motion.div key={msg.id}
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                   >
-                    {loadingAI
-                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /> Generating tip...</>
-                      : <><Zap className="w-3.5 h-3.5 text-primary" /> <span className="text-muted-foreground">Get AI coaching tip</span></>}
-                  </button>
-                )}
+                    {/* Avatar */}
+                    <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                      msg.role === "assistant"
+                        ? "bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20"
+                        : "bg-gradient-to-br from-slate-700 to-slate-600"
+                    }`}>
+                      {msg.role === "assistant"
+                        ? <Sparkles className="w-3.5 h-3.5 text-primary" />
+                        : <User className="w-3.5 h-3.5 text-slate-300" />}
+                    </div>
+
+                    <div className={`flex flex-col gap-1.5 max-w-[82%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                      {/* Bubble */}
+                      <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                        msg.role === "user" ? "rounded-tr-sm text-white" : "rounded-tl-sm text-foreground"
+                      }`}
+                        style={msg.role === "user"
+                          ? { background: "var(--gradient-primary)" }
+                          : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.07)" }
+                        }>
+                        {msg.content}
+                      </div>
+
+                      {/* Action buttons */}
+                      {msg.actions && msg.actions.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {msg.actions.map((action) => (
+                            <button key={action.route}
+                              onClick={() => { setOpen(false); navigate(action.route); }}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-stats font-medium text-primary border border-primary/30 bg-primary/5 hover:bg-primary/15 transition-colors">
+                              {action.label} <ChevronRight className="w-3 h-3" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <span className="text-[9px] font-stats text-muted-foreground px-1">
+                        {formatTime(msg.time)}
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+
+              {/* Typing indicator */}
+              {sending && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  className="flex gap-2.5">
+                  <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0 bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                  </div>
+                  <div className="px-3.5 py-3 rounded-2xl rounded-tl-sm flex items-center gap-1.5"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                    {[0, 1, 2].map((i) => (
+                      <motion.span key={i}
+                        animate={{ y: [0, -5, 0] }}
+                        transition={{ duration: 0.5, delay: i * 0.12, repeat: Infinity }}
+                        className="w-1.5 h-1.5 rounded-full bg-primary block"
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Quick prompts */}
+            <AnimatePresence>
+              {showQuickPrompts && !loadingCtx && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="shrink-0 px-3 pb-2 overflow-hidden"
+                  style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                  <p className="text-[9px] font-stats text-muted-foreground uppercase tracking-widest px-1 py-2">
+                    Ask me anything
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {QUICK_PROMPTS.map((p) => (
+                      <button key={p.label} onClick={() => handleSend(p.label)} disabled={sending}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-stats text-muted-foreground hover:text-foreground transition-all disabled:opacity-40"
+                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                        <p.icon className="w-3 h-3 shrink-0" />
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Input */}
+            <div className="shrink-0 px-3 pb-3 pt-2"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <input ref={inputRef} type="text"
+                  placeholder={loadingCtx ? "Loading your CRM data..." : "Ask about your pipeline, deals, strategy..."}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={sending || loadingCtx}
+                  className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50"
+                />
+                <button onClick={() => handleSend()}
+                  disabled={!input.trim() || sending || loadingCtx}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-30 hover:opacity-90 active:scale-95 shrink-0"
+                  style={{ background: "var(--gradient-primary)" }}>
+                  {sending
+                    ? <Loader2 className="w-3.5 h-3.5 text-black animate-spin" />
+                    : <Send className="w-3.5 h-3.5 text-black" />}
+                </button>
               </div>
-            )}
+              <p className="text-[9px] font-stats text-muted-foreground/40 text-center mt-1.5">
+                Powered by Groq · Llama 3.3 70B · Live CRM context
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
