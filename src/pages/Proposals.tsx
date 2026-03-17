@@ -7,13 +7,8 @@ import {
   Edit3, Save, AlertCircle, Zap, Check,
   ArrowRight, ChevronRight,
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabase"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ProposalStatus = "Draft" | "Sent" | "Viewed" | "Accepted" | "Rejected";

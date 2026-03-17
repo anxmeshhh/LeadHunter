@@ -6,12 +6,8 @@ import {
   Loader2, CheckCircle2, AlertCircle, Save,
   RefreshCw, Shield, X, Check, Flame,
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../lib/supabase";
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type SettingsTab = "profile" | "notifications" | "targets" | "integrations" | "import" | "appearance";
