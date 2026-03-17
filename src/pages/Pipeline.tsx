@@ -5,13 +5,8 @@ import {
   MapPin, ChevronRight, TrendingUp, Zap, ArrowRight,
   CheckCircle2, XCircle, Circle, AlertCircle,
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabase"; // ✅ FIXED: use shared client (has auth session)
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
 const STAGE_CONFIG = [
@@ -385,7 +380,6 @@ export default function Pipeline() {
     }));
   }, []);
 
-  // ✅ FIX: get current user then filter by user_id
   const fetchPipeline = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -396,7 +390,7 @@ export default function Pipeline() {
       const { data, error: err } = await supabase
         .from("leads")
         .select("id, business_name, category, city, deal_value, status, score, score_label, updated_at")
-        .eq("user_id", user.id)                          // ✅ user_id filter
+        .eq("user_id", user.id)
         .order("updated_at", { ascending: false });
 
       if (err) throw err;
@@ -417,9 +411,7 @@ export default function Pipeline() {
     return () => { supabase.removeChannel(ch); };
   }, [fetchPipeline]);
 
-  // ✅ FIX: also scope the update to the current user's lead
   async function handleMove(leadId, newStatus) {
-    // Optimistic update
     setStages((prev) => {
       let moving = null;
       const next = prev.map((stage) => {
@@ -439,12 +431,11 @@ export default function Pipeline() {
       .from("leads")
       .update({ status: newStatus })
       .eq("id", leadId)
-      .eq("user_id", user?.id);                          // ✅ user_id scoped update
+      .eq("user_id", user?.id);
 
     if (e) fetchPipeline();
   }
 
-  // ── Summary stats ──────────────────────────────────────────────────────────
   const allCards    = stages.flatMap((s) => s.cards);
   const totalValue  = allCards.reduce((s, c) => s + c.deal_value, 0);
   const wonValue    = (stages.find((s) => s.name === "Closed Won")?.cards ?? [])
@@ -457,7 +448,6 @@ export default function Pipeline() {
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden" style={{ padding: "20px 24px 16px" }}>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -499,7 +489,6 @@ export default function Pipeline() {
           </div>
         </div>
 
-        {/* ── Summary bar ───────────────────────────────────────────────────── */}
         <div className="grid grid-cols-4 gap-3 mt-4">
           {[
             { label: "Pipeline Value", value: formatValue(totalValue), color: "hsl(72,100%,50%)" },
@@ -526,7 +515,6 @@ export default function Pipeline() {
         </div>
       </motion.div>
 
-      {/* ── Error ──────────────────────────────────────────────────────────── */}
       {error && (
         <div
           className="shrink-0 mb-3 p-3 rounded-xl text-sm flex items-center justify-between font-stats"
@@ -537,7 +525,6 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* ── Loading ─────────────────────────────────────────────────────────── */}
       {loading && stages.length === 0 && (
         <div className="flex items-center justify-center flex-1 gap-2" style={{ color: "rgba(148,163,184,0.5)" }}>
           <Loader2 className="w-4 h-4 animate-spin" />
@@ -545,7 +532,6 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* ── Board ───────────────────────────────────────────────────────────── */}
       {!loading && (
         <div
           className="flex gap-3 flex-1 overflow-x-auto min-h-0 pb-2"
