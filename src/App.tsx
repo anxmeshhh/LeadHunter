@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import { AuthProvider, ProtectedRoute } from "./hooks/useAuth";
 import AppLayout from "./components/AppLayout";
+import FollowUpQueue from "./pages/FollowUpQueue";
+
 
 // Public pages
 import Login  from "./pages/Login";
@@ -54,6 +56,8 @@ const App = () => (
                 <Route path="/calendar"  element={<CalendarPage />} />
                 <Route path="/tags"      element={<Tags />}         />
                 <Route path="/settings"  element={<Settings />}     />
+                <Route path="/followup" element={<FollowUpQueue />} />
+
                 <Route path="*"          element={<NotFound />}     />
               </Route>
             </Route>
