@@ -2,19 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   TrendingUp, Users, Phone, MessageSquare,
-  IndianRupee, Target, ArrowUpRight, ArrowDownRight,
-  Loader2, RefreshCw, AlertCircle
+  IndianRupee, Target, Loader2, RefreshCw, AlertCircle
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell,
 } from "recharts";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from "../lib/supabase"; // ✅ FIXED: use shared client (has auth session)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Lead {
@@ -80,13 +74,11 @@ export default function Analytics() {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
 
-  // ── Fetch ──────────────────────────────────────────────────────────────────
-  // ✅ FIX: scope both queries to current user
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser(); // ✅
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const [
@@ -96,12 +88,12 @@ export default function Analytics() {
         supabase
           .from("leads")
           .select("id, status, category, deal_value, created_at, city")
-          .eq("user_id", user.id)                  // ✅
+          .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
         supabase
           .from("outreach_history")
           .select("id, contact_mode, contacted_at, lead_id")
-          .eq("user_id", user.id)                  // ✅
+          .eq("user_id", user.id)
           .order("contacted_at", { ascending: true }),
       ]);
 
@@ -145,12 +137,12 @@ export default function Analytics() {
   const convRate    = total     > 0 ? ((closedWon / total)     * 100).toFixed(1) : "0.0";
 
   const kpis = [
-    { label: "Total Leads",   value: total.toLocaleString(),    icon: Users,         color: "text-primary"    },
-    { label: "Contact Rate",  value: `${contactRate}%`,         icon: Phone,         color: "text-cyan-400"   },
-    { label: "Reply Rate",    value: `${replyRate}%`,           icon: MessageSquare, color: "text-violet-400" },
-    { label: "Conversion",    value: `${convRate}%`,            icon: Target,        color: "text-success"    },
-    { label: "Avg Deal Size", value: formatRevenue(avgDeal),    icon: IndianRupee,   color: "text-amber-400"  },
-    { label: "Total Revenue", value: formatRevenue(totalRevenue), icon: TrendingUp,  color: "text-primary"    },
+    { label: "Total Leads",   value: total.toLocaleString(),      icon: Users,         color: "text-primary"    },
+    { label: "Contact Rate",  value: `${contactRate}%`,           icon: Phone,         color: "text-cyan-400"   },
+    { label: "Reply Rate",    value: `${replyRate}%`,             icon: MessageSquare, color: "text-violet-400" },
+    { label: "Conversion",    value: `${convRate}%`,              icon: Target,        color: "text-success"    },
+    { label: "Avg Deal Size", value: formatRevenue(avgDeal),      icon: IndianRupee,   color: "text-amber-400"  },
+    { label: "Total Revenue", value: formatRevenue(totalRevenue), icon: TrendingUp,    color: "text-primary"    },
   ];
 
   // ── Weekly Activity (last 7 days) ──────────────────────────────────────────
@@ -244,7 +236,6 @@ export default function Analytics() {
     }));
   })();
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
 
@@ -329,8 +320,8 @@ export default function Analytics() {
                     <XAxis dataKey="day" tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="leads"    fill="hsl(72,100%,50%)"  radius={[4,4,0,0]} name="Leads"    />
-                    <Bar dataKey="outreach" fill="hsl(217,91%,60%)"  radius={[4,4,0,0]} name="Outreach" />
+                    <Bar dataKey="leads"    fill="hsl(72,100%,50%)" radius={[4,4,0,0]} name="Leads"    />
+                    <Bar dataKey="outreach" fill="hsl(217,91%,60%)" radius={[4,4,0,0]} name="Outreach" />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -363,8 +354,8 @@ export default function Analytics() {
                     <XAxis dataKey="month" tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "hsl(215,20%,65%)", fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={false} tickLine={false} tickFormatter={(v) => formatRevenue(v)} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="revenue" stroke="hsl(72,100%,50%)"  fill="url(#revenueGrad)" strokeWidth={2} name="Revenue" />
-                    <Area type="monotone" dataKey="leads"   stroke="hsl(217,91%,60%)"  fill="url(#leadsGrad)"   strokeWidth={2} name="Leads"   />
+                    <Area type="monotone" dataKey="revenue" stroke="hsl(72,100%,50%)" fill="url(#revenueGrad)" strokeWidth={2} name="Revenue" />
+                    <Area type="monotone" dataKey="leads"   stroke="hsl(217,91%,60%)" fill="url(#leadsGrad)"   strokeWidth={2} name="Leads"   />
                   </AreaChart>
                 </ResponsiveContainer>
               )}
