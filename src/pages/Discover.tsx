@@ -276,6 +276,28 @@ const OPP_STYLES = {
   "🟢 Low Priority": { card: "border-l-[3px] border-l-slate-500/40", badge: "bg-slate-500/10 text-slate-400 border-slate-500/30", bar: "from-slate-400 to-slate-500"  },
 } as const;
 
+// Add this function in Discover.tsx
+async function checkAlreadySaved(leads: DiscoveredLead[]): Promise<DiscoveredLead[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return leads;
+
+  const placeIds = leads.map((l) => l.place_id).filter(Boolean);
+  if (!placeIds.length) return leads;
+
+  const { data: existing } = await supabase
+    .from("leads")
+    .select("google_place_id")
+    .eq("user_id", user.id)
+    .in("google_place_id", placeIds);
+
+  const savedSet = new Set((existing ?? []).map((r: any) => r.google_place_id));
+
+  return leads.map((l) => ({
+    ...l,
+    saved: savedSet.has(l.place_id),
+  }));
+}
+
 export default function Discover() {
   const [city,          setCity]          = useState("");
   const [customQuery,   setCustomQuery]   = useState("");
@@ -313,36 +335,39 @@ export default function Discover() {
   }
 
   async function handleSearch() {
-    const q = buildQuery();
-    if (!q) return;
-    setLoading(true); setError(null); setResults([]);
-    setPageToken(null); setSearched(true); setCurrentQuery(q);
-    setFilterMode("all"); setExpandedPitch(null);
-    try {
-      const { leads, nextPageToken } = await fetchPlaces(q, city, null);
-      setResults(leads); setPageToken(nextPageToken);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Search failed.");
-    } finally {
-      setLoading(false);
-    }
+  const q = buildQuery();
+  if (!q) return;
+  setLoading(true); setError(null); setResults([]);
+  setPageToken(null); setSearched(true); setCurrentQuery(q);
+  setFilterMode("all"); setExpandedPitch(null);
+  try {
+    const { leads, nextPageToken } = await fetchPlaces(q, city, null);
+    const checked = await checkAlreadySaved(leads); // ✅ add this
+    setResults(checked);
+    setPageToken(nextPageToken);
+  } catch (e: unknown) {
+    setError(e instanceof Error ? e.message : "Search failed.");
+  } finally {
+    setLoading(false);
   }
+}
 
-  async function handleLoadMore() {
-    if (!pageToken || loadingMore) return;
-    setLoadingMore(true);
-    try {
-      const existingIds = new Set(results.map((r) => r.place_id));
-      const { leads, nextPageToken } = await fetchPlaces(currentQuery, city, pageToken);
-      const fresh = leads.filter((l) => !existingIds.has(l.place_id));
-      setResults((prev) => [...prev, ...fresh]);
-      setPageToken(nextPageToken);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load more.");
-    } finally {
-      setLoadingMore(false);
-    }
+async function handleLoadMore() {
+  if (!pageToken || loadingMore) return;
+  setLoadingMore(true);
+  try {
+    const existingIds = new Set(results.map((r) => r.place_id));
+    const { leads, nextPageToken } = await fetchPlaces(currentQuery, city, pageToken);
+    const fresh = leads.filter((l) => !existingIds.has(l.place_id));
+    const checked = await checkAlreadySaved(fresh); // ✅ add this
+    setResults((prev) => [...prev, ...checked]);
+    setPageToken(nextPageToken);
+  } catch (e: unknown) {
+    setError(e instanceof Error ? e.message : "Failed to load more.");
+  } finally {
+    setLoadingMore(false);
   }
+}
 
   async function handleGeneratePitch(placeId: string) {
     const lead = results.find((r) => r.place_id === placeId);
