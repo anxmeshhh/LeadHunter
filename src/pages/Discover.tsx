@@ -393,7 +393,7 @@ export default function Discover() {
           source:           "google_places",
           user_id:          user.id,            // ✅ stamped
         },
-        { onConflict: "google_place_id", ignoreDuplicates: false }
+        { onConflict: "google_place_id,user_id", ignoreDuplicates: false }
       );
 
       if (dbError) throw dbError;
