@@ -355,57 +355,75 @@ export default function Discover() {
 
   // ✅ FIX: stamp user_id on every upsert
   async function handleSaveLead(placeId: string) {
-    const lead = results.find((r) => r.place_id === placeId);
-    if (!lead || lead.saved || lead.saving) return;
+  const lead = results.find((r) => r.place_id === placeId);
+  if (!lead || lead.saved || lead.saving) return;
 
-    setResults((prev) => prev.map((r) => r.place_id === placeId ? { ...r, saving: true } : r));
+  setResults((prev) => prev.map((r) => r.place_id === placeId ? { ...r, saving: true } : r));
 
-    try {
-      // ✅ get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Not authenticated");
 
-      const { score, score_label } = computeLeadScore({
-        has_website:  !!lead.website,
-        email:        null,
-        phone:        lead.phone || null,
-        rating:       lead.rating,
-        review_count: lead.review_count,
-      });
+    const { score, score_label } = computeLeadScore({
+      has_website:  !!lead.website,
+      email:        null,
+      phone:        lead.phone || null,
+      rating:       lead.rating,
+      review_count: lead.review_count,
+    });
 
-      const { error: dbError } = await supabase.from("leads").upsert(
-        {
-          business_name:    lead.business_name,
-          category:         lead.category,
-          city:             lead.city,
-          address:          lead.address,
-          phone:            lead.phone   || null,
-          website:          lead.website || null,
-          google_place_id:  lead.place_id,
-          rating:           lead.rating,
-          review_count:     lead.review_count,
-          has_website:      !!lead.website,
-          ai_pitch:         lead.aiPitch || null,
-          ai_opportunities: lead.opportunities,
-          score,
-          score_label,
-          status:           "New Lead",
-          source:           "google_places",
-          user_id:          user.id,            // ✅ stamped
-        },
-        { onConflict: "google_place_id,user_id", ignoreDuplicates: false }
-      );
+    const payload = {
+      business_name:    lead.business_name,
+      category:         lead.category,
+      city:             lead.city,
+      address:          lead.address,
+      phone:            lead.phone   || null,
+      website:          lead.website || null,
+      google_place_id:  lead.place_id,
+      rating:           lead.rating,
+      review_count:     lead.review_count,
+      has_website:      !!lead.website,
+      ai_pitch:         lead.aiPitch || null,
+      ai_opportunities: lead.opportunities,
+      score,
+      score_label,
+      status:           "New Lead",
+      source:           "google_places",
+      user_id:          user.id,
+    };
 
-      if (dbError) throw dbError;
+    // Check if lead already exists for this user
+    const { data: existing } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("google_place_id", lead.place_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-      setResults((prev) => prev.map((r) =>
-        r.place_id === placeId ? { ...r, saved: true, saving: false } : r
-      ));
-    } catch (e) {
-      console.error("Save error:", e);
-      setResults((prev) => prev.map((r) => r.place_id === placeId ? { ...r, saving: false } : r));
+    let dbError;
+    if (existing) {
+      ({ error: dbError } = await supabase
+        .from("leads")
+        .update(payload)
+        .eq("id", existing.id));
+    } else {
+      ({ error: dbError } = await supabase
+        .from("leads")
+        .insert(payload));
     }
+
+    if (dbError) throw dbError;
+
+    setResults((prev) => prev.map((r) =>
+      r.place_id === placeId ? { ...r, saved: true, saving: false } : r
+    ));
+  } catch (e) {
+    console.error("Save error:", e);
+    setResults((prev) => prev.map((r) =>
+      r.place_id === placeId ? { ...r, saving: false } : r
+    ));
   }
+}
 
   async function handleSaveAll() {
     const unsavedIds = displayResults.filter((r) => !r.saved && !r.saving).map((r) => r.place_id);
