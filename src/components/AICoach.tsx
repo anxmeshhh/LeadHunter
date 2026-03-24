@@ -31,6 +31,7 @@ interface CRMContext {
   followUpCount:    number;
   replyRate:        number;
   pipeline:         { stage: string; count: number; value: number }[];
+  recentLeads: string[];
 }
 
 // ── Quick prompts ──────────────────────────────────────────────────────────────
@@ -130,6 +131,9 @@ async function fetchCRMContext(userId: string): Promise<CRMContext> {
     followUpCount,
     replyRate,
     pipeline,
+    recentLeads: (leads ?? [])
+    .slice(0, 30)
+    .map((l: any) => `${l.business_name} (${l.status})`),
   };
 }
 
@@ -146,6 +150,9 @@ function buildSystemPrompt(ctx: CRMContext): string {
   const coldText = ctx.coldDeals.length > 0
     ? ctx.coldDeals.map((l) => `  - ${l.name} (${l.status}${l.value > 0 ? `, Rs. ${(l.value / 1000).toFixed(0)}K` : ""})`).join("\n")
     : "  None";
+  const recentLeadsText = ctx.recentLeads.length > 0
+  ? ctx.recentLeads.join(", ")
+  : "None";
 
   return `You are an elite AI sales coach inside LeadHunter CRM, built for Indian freelancers who sell web design, SEO, and digital services to local businesses.
 
@@ -163,6 +170,10 @@ KEY METRICS:
 - Revenue closed: Rs. ${(ctx.closedWonValue / 1000).toFixed(0)}K
 - Follow-ups needed: ${ctx.followUpCount} leads
 - Top category: ${ctx.topCategory} (${ctx.topCategoryCount} leads)
+
+
+LEADS IN CRM (up to 30):
+${recentLeadsText}
 
 STUCK DEALS (7+ days no movement):
 ${stuckText}
